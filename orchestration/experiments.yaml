@@ -1,0 +1,113 @@
+# Master orchestration config for the Brandenburg climate + CO2 scenario experiments.
+#
+# This is the single human-readable control surface. `generate.py` reads it to
+# build, per experiment, an isolated run directory containing:
+#   project/project.csv       (period + grid + vIDPL management)
+#   project/project.proj.xml  (weather-interface path + divider for the climate source)
+#   data/co2/co2.csv          (the CO2 forcing matched to the climate scenario)
+#   config.yaml               (the `cluster:` block the runner consumes)
+#
+# Experiment matrix = 17 climate scenarios per crop. There is no soil-scenario
+# dimension in this project: soil is a fixed Brandenburg 1 km property, staged
+# from the crop's own data/soil/soil.csv.
+
+# Repo root. `auto` derives it from this file's location, so the checkout can be
+# moved or cloned anywhere without editing config. Override with an absolute path
+# here or via the BRANDENBURG_SCENARIOS_ROOT env var.
+repo_root: auto
+
+paths:
+  point_grid: data/raw/point_to_nearest_grid.csv # PointID -> nearest HYRAS cell
+  co2_dir: climate/co2 # scenario CO2 records, staged as data/co2/co2.csv
+  runs_subdir: runs # simplace/<crop>/runs/<exp_id>/
+
+# The six calibrated crops. `span_years` is the number of EXTRA calendar years a
+# simulation window covers: winter crops are sown in autumn of year Y and
+# harvested in Y+1 (window Y-01-01 .. Y+1-12-31, span 1); spring/summer crops fit
+# one calendar year (span 0).
+#
+# Getting this wrong is silent — a winter crop cut off at 31 Dec of the sowing
+# year never reaches harvest, and the yearly output only fires on
+# HarvestManagement.DoHarvest, so the run "succeeds" with header-only files.
+# `build_baseline_project.py` writes the span into the baseline table and
+# `generate.py` reads it back from there, so this value is declared exactly once.
+crops:
+  winter_wheat: { span_years: 1, sown_previous_autumn: true }
+  winter_rapeseed: { span_years: 1, sown_previous_autumn: true }
+  spring_barley: { span_years: 0, sown_previous_autumn: false }
+  potato: { span_years: 0, sown_previous_autumn: false }
+  maize: { span_years: 0, sown_previous_autumn: false }
+  sugar_beet: { span_years: 0, sown_previous_autumn: false }
+
+# Site set -------------------------------------------------------------------
+# The Brandenburg 1 km grid is 15 066 sites, about five times denser than the
+# Germany-wide project this layer was adapted from. That makes a future
+# experiment's project table ~1.3 M rows (~130 MB) and the full matrix ~10 GB
+# before any model output exists.
+#
+# `stride` thins the site set for proving a workflow: 10 keeps every 10th site.
+# It is applied by build_baseline_project.py, and everything downstream inherits
+# the smaller set from the baseline table — so changing it means rebuilding the
+# baseline tables and regenerating the run dirs, not editing them.
+points:
+  stride: 1 # 1 = every site
+
+# Climate sources -----------------------------------------------------------
+# Same models and scenarios as the reference Germany-wide project, so results
+# from the two are directly comparable.
+climate_dwd: /beegfs/common/data/climate/dwd/csvs/germany_ubn_1951-01-01_to_2024-08-30
+climate_root_hyras: /data01/FDS/muduchuru/Atmos/NEXGDDP_HYRAS_BC_CSV
+gcms: [ACCESS-CM2, CanESM5, EC-Earth3, GFDL-ESM4, MIROC6]
+ssps: [ssp126, ssp370]
+
+# Period table (inclusive years) + the date-string baked into HYRAS filenames.
+periods:
+  baseline: { start: 1979, end: 2024 } # DWD observations; clamped to coverage
+  historical: { start: 1951, end: 2014, datestr: "19510101_20141231" }
+  future: { start: 2015, end: 2100, datestr: "20150101_21001231" }
+
+# CO2 forcing ---------------------------------------------------------------
+# Every solution reads ${_WORKDIR_}/data/co2/co2.csv at DAILY frequency, keyed on
+# (CURRENT.YEAR, CURRENT.MONTH). The climate decides which record in
+# `paths.co2_dir` is staged under that name — this is what makes an SSP run
+# actually see SSP CO2 rather than silently running on the observed record.
+#
+# A month with no row is a NullPointerException, not a gap, so a record must
+# cover every month of every window it is used for.
+#
+# `historical` is GENERATED, not raw: co2_mm_observed.csv is the Mauna Loa record
+# and starts 1958-03, seven years after the historical period does.
+# build_co2_historical.py prepends 1951-01 .. 1958-02 from the Law Dome
+# ice-core/firn spline and copies the observed months through verbatim.
+co2:
+  observed: co2_mm_historical.csv # DWD, HYRAS OBS, all GCM `historical`
+  by_ssp:
+    ssp126: co2_mm_ssp126_future.csv
+    ssp370: co2_mm_ssp370_future.csv
+
+# SLURM / Singularity defaults for the generated `cluster:` blocks.
+slurm:
+  singularity_image: /beegfs/common/singularity/simplace/simplace_5.0-3897.sif
+  partition: compute
+  walltime: "06:00:00"
+  num_nodes: 50 # per experiment; sized so many experiments can run concurrently
+  num_tasks_per_node: 8
+  cpus_per_node: 80 # cores per compute node; sets cpus-per-task = this / tasks
+  # Size of the partition. Each runner blocks until its own jobs finish, so the
+  # generated submit script drives cluster_nodes // num_nodes experiments at a
+  # time instead of launching all of them and oversubscribing the queue.
+  cluster_nodes: 100
+
+  # --- Single-allocation campaign -------------------------------------------
+  # generate.py also writes campaign_<label>_<hash>.sbatch: ONE allocation of
+  # campaign_nodes, held from the first experiment to the last. Every experiment
+  # runs inside it as srun job steps (simplace_runner_cluster.py --mode alloc),
+  # so nodes are never handed back and re-queued between experiments — which on
+  # a busy partition is where most of the wall-clock goes.
+  campaign_nodes: 50 # held for the whole campaign; <= cluster_nodes
+  campaign_walltime: "24:00:00"
+  # Memory per CPU for the allocation. Must be set: without it the first srun
+  # step on a node claims the node's whole memory and the other
+  # num_tasks_per_node steps stall behind it inside our own allocation.
+  # compute nodes have 95000M / 80 cores.
+  mem_per_cpu: 1100M

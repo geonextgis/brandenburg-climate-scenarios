@@ -1,0 +1,162 @@
+# MODEL + RUN configuration for calibration.
+#
+# This file answers "how is a calibration run set up and executed" — repo root,
+# climate forcing, SLURM, which input tables get staged, which project table and
+# subset each run uses, and the per-crop facts (crop_name, dm_fraction).
+#
+# It says nothing about *which parameters to change*. That is calibration.yaml,
+# which `extends:` this file so the cluster settings and the per-crop facts live
+# in exactly one place. The two files never declare the same thing twice: run
+# definitions are only here, parameter spaces only there.
+#
+# Nothing here is read by the scenario pipeline (orchestration/generate.py);
+# calibration runs are fully isolated under simplace/<crop>/runs_optim/.
+
+# Repo root. `auto` derives it from this file's location, so the checkout can be
+# moved or cloned anywhere without editing config. Override with an absolute path
+# here or via the BRANDENBURG_SCENARIOS_ROOT env var.
+repo_root: auto
+
+# Climate driving the calibration runs. DWD observations = the baseline source,
+# and the only one there are observations to calibrate against. CO2 comes from
+# climate/co2/co2_mm_historical.csv (see common.CO2_SOURCE) — calibration runs
+# under the CO2 the observations were actually made under, not a scenario one.
+climate:
+  mount_data: /beegfs/common/data/climate/dwd/csvs/germany_ubn_1951-01-01_to_2024-08-30
+
+slurm:
+  singularity_image: /beegfs/common/singularity/simplace/simplace_5.0-3897.sif
+  partition: compute
+  walltime: "03:00:00"
+  num_nodes: 40
+  num_tasks_per_node: 8
+  cpus_per_node: 80
+  debug: false
+  # An iteration normally submits its own SLURM jobs and releases the nodes when
+  # it ends, so every iteration pays a fresh queue wait.
+  # `orchestration/hold_nodes.py hold` keeps one allocation for the whole session
+  # and every iteration attaches to it instead; nothing here has to change for
+  # that, the runner finds it on its own.
+  #
+  # Only read when attached to a held allocation: refuse to start an iteration
+  # with less than this left, so a run cannot be cut in half by the walltime.
+  min_remaining: "00:30:00"
+
+# Which input tables get staged into a calibration run dir under the canonical
+# names the solution reads (data/soil/soil.csv, data/management/location.csv,
+# data/management/fertilizer_<crop>.csv).
+#
+# There is only one profile here. The reference Germany-wide project had a second
+# (`lai`) for its GLASS-LAI point set; this project has no LAI point set of its
+# own — see the note on the `growth` target below.
+input_profiles:
+  production:
+    soil: data/soil/soil.csv
+    location: data/management/location.csv
+    fertilizer: data/management/fertilizer_{crop}.csv
+
+# ---------------------------------------------------------------------------
+# Targets = the calibration stages, each defined as one or more VIEWS.
+#
+# A view is one complete model run: a project table, an input profile, an output
+# namespace and a subset. A stage with several views runs all of them from the
+# SAME crop.xml and scores each one.
+#
+# Run dir:  simplace/<crop>/runs_optim/<run_subdir>/<view>/
+#
+# The parameter space, the objective weights, the constraints and the stopping
+# rules live in calibration.yaml.
+#
+# ## Subsets, and why they are small here
+#
+# The Brandenburg baseline table is 15 066 sites x ~45 seasons ~= 690 000
+# simulations. An iteration has to be cheap enough to reason about and to repeat
+# dozens of times, so each view runs an evenly-spaced subset of sites. Even
+# spacing (not a random sample) keeps the geographic spread of the full set,
+# which matters because the observations are per district: a subset that misses a
+# district contributes nothing for it.
+#
+# `n_locations: 400` over 19 districts is ~21 sites per district — enough for the
+# district means the phenology and yield views are scored on.
+# ---------------------------------------------------------------------------
+targets:
+  # -- stage 1: phenology ---------------------------------------------------
+  # Anthesis and maturity against the DWD phenology network, at NUTS-3 district
+  # resolution (the resolution the observations are reported at).
+  phenology:
+    run_subdir: calib_phenology
+    views:
+      phenology:
+        exp_name: CALIB_PHENOLOGY
+        project_csv: project/project_{crop}.csv
+        inputs: production
+        subset:
+          n_locations: 400
+          year_start: 1979
+          year_end: 2022
+
+  # -- stage 2: growth ------------------------------------------------------
+  # Yield only, with the stage-1 phenology frozen.
+  #
+  # The reference project calibrated LAI and yield JOINTLY, because RUE, KDIF and
+  # the partitioning tables move biomass and leaf area at the same time and
+  # calibrating them in sequence means each undoes the other. That is still true
+  # of the model — but a joint stage needs an LAI view, and this project cannot
+  # build one: the GLASS-LAI observations inherited in
+  # data_observed/LAI_<crop>.csv are on the Germany-wide BZE point set, which has
+  # ZERO overlap with the Brandenburg 1 km sites, and maize and sugar_beet have
+  # no LAI file at all.
+  #
+  # So the canopy is not observed here, and this stage is honest about that: it
+  # calibrates yield, and the canopy parameters it moves are constrained by the
+  # crop_reference envelope in calibration.yaml rather than by data. To restore
+  # the joint stage, add:
+  #   simplace/<crop>/data_observed/LAI_<crop>.csv   keyed on Brandenburg PointIDs
+  #   simplace/<crop>/project/project_{crop}_LAI.csv
+  # then re-add the `lai` view here and its component in calibration.yaml.
+  growth:
+    run_subdir: calib_growth
+    views:
+      yield:
+        exp_name: CALIB_GROWTH_YIELD
+        project_csv: project/project_{crop}.csv
+        inputs: production
+        subset:
+          n_locations: 400
+          year_start: 1995
+          year_end: 2022
+
+# ---------------------------------------------------------------------------
+# Crops. `crop_name` must match the <parameter id="CropName"> in data/crop/crop.xml.
+# `dm_fraction` puts *observed* yield on the model's dry-matter basis (1.0 = the
+# observations are already dry matter).
+# A crop may override any view with `targets: {<target>: {views: {<view>: ...}}}`.
+# ---------------------------------------------------------------------------
+crops:
+  winter_wheat:
+    crop_name: winter_wheat
+    dm_fraction: 1.0
+
+  winter_rapeseed:
+    crop_name: winter_rapeseed
+    dm_fraction: 1.0
+
+  spring_barley:
+    crop_name: spring_barley
+    dm_fraction: 1.0
+
+  potato:
+    crop_name: potato
+    # Observed potato yield is fresh tuber weight (~33 t/ha) vs dry-matter sim
+    # (~5.5 t/ha); without this the yield loss would chase a units mismatch.
+    dm_fraction: 0.21
+
+  maize:
+    crop_name: maize
+    dm_fraction: 1.0
+
+  sugar_beet:
+    crop_name: sugar_beet
+    # Reported beet yield is fresh root weight (~65 t/ha); root dry matter is
+    # about 23 % of that. Same failure mode as potato if left at 1.0.
+    dm_fraction: 0.23

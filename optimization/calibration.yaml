@@ -1,0 +1,973 @@
+# CALIBRATION configuration — the parameter space the agents reason over.
+#
+# This is deliberately *not* an optimizer search space. There is no sampler
+# anywhere in this repository. Every entry carries the bounds a change must
+# respect and the biological `meaning` an agent uses to decide *which* parameter
+# to move and *in which direction*. The same file serves both decision-makers:
+#
+#   optimization/agents/      local LLM agents over Ollama  (agentic.py)
+#   .claude/agents/           Claude Code agents            (calibrate.py)
+#
+# Both go through optimization/calibrate.py, so the guard rails, the ledger and
+# the objective are identical whoever is deciding.
+#
+# `extends` pulls crops / climate / slurm / input_profiles / the per-target run
+# definitions (views) from config.yaml, so nothing is declared twice.
+extends: config.yaml
+
+# ---------------------------------------------------------------------------
+# The workflow: two stages, in this order.
+#
+#   1. phenology   calibrated from scratch, on its own.
+#                  Everything downstream is dated off DVS, so a canopy or a yield
+#                  parameter tuned against a wrong development clock is tuned
+#                  against noise. This stage owns the thermal-time parameters and
+#                  nothing else.
+#
+#                       calibrate.py promote --target phenology --yes
+#                       calibrate.py handoff        (seeds stage 2)
+#
+#   2. growth      Yield against district statistics, with the stage-1 phenology
+#                  frozen. In the reference Germany-wide project this stage was
+#                  JOINT (LAI + yield) because RUE, KDIF and the partitioning
+#                  tables move biomass and leaf area at the same time. That is
+#                  still true of the model, but this project has no LAI
+#                  observations on its own sites (see optimization/config.yaml),
+#                  so the canopy is UNOBSERVED here. It is constrained by the
+#                  crop_reference envelope below instead of by data, and a canopy
+#                  parameter should only be moved when the yield diagnostics
+#                  implicate it and the resulting LAI stays inside that envelope.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Bound modes
+# ---------------------------------------------------------------------------
+# Each parameter declares one of:
+#
+#   mode: relative   low/high = current crop.xml value * factor[0..1], then
+#                    intersected with `clip` (hard physical limits).
+#                    This is what makes the space crop-agnostic: wheat's SLA
+#                    table has 8 nodes, rapeseed 5, potato 3 — relative bounds
+#                    fit whatever is actually in that crop's crop.xml.
+#   mode: absolute   low/high given literally, independent of the starting value.
+#                    Used where a value has a meaning of its own (a DVS
+#                    threshold), and for the stage-1 thermal-time parameters,
+#                    which are calibrated from scratch and must not be tethered
+#                    to whatever happens to be in crop.xml today.
+#
+# `kind: table` expands to one bound per <value> element actually present.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# The enabled switch
+# ---------------------------------------------------------------------------
+# EVERY parameter below carries an explicit `enabled:` flag. It is the first key
+# of each block so the state of the space can be read at a glance:
+#
+#   enabled: true    in the space. The agent may propose it.
+#   enabled: false   out of the space entirely — a proposal naming it is refused
+#                    at parse time ("not a calibratable parameter"), it is never
+#                    offered to an agent, and `calibrate.py status` lists it in a
+#                    separate section with `disabled_reason`.
+#
+# Switching a parameter off this way rather than deleting or commenting out its
+# block keeps the bounds, the biological `meaning` and — most importantly — the
+# reason it is off. A deleted block loses all three, and the next person to look
+# has no way to know whether it was tried and rejected or simply forgotten.
+#
+# `enabled: false` is the weakest of the three ways to stop a parameter moving:
+#
+#   enabled: false            not calibrated in this study        (refused at parse)
+#   mode: absolute, low==high visible to the agent but immovable  (bounds violation)
+#   frozen_groups + frozen:   provably never written              (frozen violation,
+#                             plus the written XML is re-read and diffed after
+#                             every single iteration)
+#
+# Use `frozen:` for a finished stage whose values must be protected against
+# indirect drift; use `enabled: false` for "not this study".
+# ---------------------------------------------------------------------------
+
+# Parameter groups a target may declare frozen.
+frozen_groups:
+  # The stage-1 result. Frozen for stage 2: these drive DVS progression, and the
+  # whole point of calibrating phenology first is that stage 2 can trust the clock.
+  phenology_parameters:
+    - TBASEM
+    - TEFFMX
+    - TSUMEM
+    - IDSL
+    - PhotoperiodTableHour
+    - PhotoperiodTableFactor
+    - TSUM1
+    - TSUM2
+    - TsumIncrementTableMeanTemp
+    - TsumIncrementTableRate
+    - DVSI
+    - DVSEND
+    # Vernalisation. Only the two winter crops define these (and only their
+    # solutions wire them into the LINTUL5 Phenology component); a crop that does
+    # not define one simply drops out of the freeze snapshot.
+    - VBASE
+    - VERSAT
+    - VERNRT
+
+  # DVS node grids of the response tables. The *values* on these grids are
+  # calibratable; moving the grid itself would silently re-index every table and
+  # break the DVS-bin diagnostics the agent reasons with. Frozen in both stages.
+  response_table_grids:
+    - SLATableDVS
+    - RUETableDVS
+    - KDIFTableDVS
+    - LeavesPartitioningTableDVS
+    - StemsPartitioningTableDVS
+    - StorageOrgansPartitioningTableDVS
+    - RootsPartitioningTableDVS
+    - RDRLeavesTableMeanTemp
+
+# ---------------------------------------------------------------------------
+targets:
+  # =========================================================================
+  # STAGE 1 — PHENOLOGY: anthesis and maturity date against DWD observations.
+  #
+  # Calibrated from scratch. The bounds on the thermal-time parameters are
+  # absolute and physiological rather than relative to the current crop.xml, so
+  # the calibration is not anchored on whatever values happen to be in the file.
+  #
+  # objective = mean( RMSE(flowering DOY), RMSE(maturity DOY) )   in days
+  # =========================================================================
+  phenology:
+    objective:
+      name: phenology_rmse_days
+      components:
+        phenology:
+          weight: 1.0
+          # scale 1.0 -> the objective IS the RMSE in days.
+          scale: 1.0
+    frozen: [response_table_grids]
+
+    # `best`   an iteration that does not beat the best objective is undone, and
+    #          the next one is a change to the BEST parameter set (the default).
+    # `latest` every iteration continues from the previous one, improving or not.
+    acceptance: best
+
+    stopping:
+      max_iterations: 100
+      # Below ~6 days the error is comparable to the reporting resolution of the
+      # DWD phenology network.
+      target_objective: 6.0
+      min_improvement: 0.5
+      patience: 20
+
+    parameters:
+      TSUMEM:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 30.0
+        high: 400.0
+        precision: 1
+        controls: [emergence_timing]
+        meaning: >-
+          Thermal time from sowing to emergence (degree-days above TBASEM). Shifts
+          the whole season equally: a constant lateness in *both* flowering and
+          maturity, with the flowering-to-maturity duration unchanged, points here
+          or at TBASEM rather than at TSUM1/TSUM2.
+      TBASEM:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: -2.0
+        high: 8.0
+        precision: 2
+        controls: [emergence_timing]
+        coupled_with: [TSUMEM, TEFFMX]
+        meaning: >-
+          Base temperature for emergence. Raising it slows accumulation in cold
+          conditions only, so it acts on autumn/early-spring sowings much more
+          than on summer ones — the signature is a lateness that grows in cold
+          years and cold regions, not a constant offset. Must stay below TEFFMX.
+      TEFFMX:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 20.0
+        high: 40.0
+        precision: 2
+        controls: [thermal_time_ceiling]
+        coupled_with: [TBASEM, TSUM1, TSUM2]
+        meaning: >-
+          Maximum effective temperature: above this, extra warmth adds no further
+          development. Lowering it slows development in hot years only. Use it
+          when the phenology bias is correlated with seasonal temperature — too
+          early in warm years, right in cool ones — rather than uniform.
+      TSUM1:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 400.0
+        high: 2000.0
+        precision: 0
+        controls: [flowering_timing]
+        meaning: >-
+          Thermal time from emergence to anthesis. THE lever for a flowering-date
+          bias: raise it if simulated flowering is too early, lower it if too
+          late. Because maturity is dated from anthesis, a change here moves both
+          dates by roughly the same amount — fix flowering first, then TSUM2.
+      TSUM2:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 300.0
+        high: 2000.0
+        precision: 0
+        controls: [grain_filling_duration]
+        meaning: >-
+          Thermal time from anthesis to maturity. Controls the flowering-to-maturity
+          DURATION and nothing before anthesis. Diagnose it on the duration
+          residual, never on the raw maturity date: a maturity bias that matches
+          the flowering bias is a TSUM1 problem, and only the part that does not
+          is a TSUM2 problem.
+      # -- vernalisation -----------------------------------------------------
+      # LIVE for the two winter crops since 2026-09-07, via
+      # `orchestration/patch_crop_vernalisation.py` (idempotent, --check reports
+      # state). Before that both winter crops developed on pure thermal time,
+      # which biased projected anthesis early under warming; that limitation is
+      # gone and any write-up predating this date carries it.
+      #
+      # The component gates BOTH vernalisation and photoperiod on IDSL == 2:
+      #
+      #   if (IDSL == 2 && !FLOW) photoFactor = PHOTTB_interpol.getValueAt(DDLP);
+      #   if (IDSL == 2) { vf = LIMIT(cMinimalVernalisationFactor, 1.0,
+      #                               (VERN - VBASE) / (VERSAT - VBASE)); ... }
+      #
+      # so a crop is vernalising only where crop.xml sets IDSL=2 AND defines the
+      # three parameters AND the solution wires cVBASE/cVERSAT/cVERNRT. The four
+      # spring/summer crops define none of them and drop out of the space on
+      # their own (`present: false`) — leave them that way, vernalisation is not
+      # a spring-crop mechanism.
+      #
+      # VERNRT (the vernalising-rate-vs-temperature table) stays out of the
+      # calibratable set on purpose: it is frozen in `phenology_parameters`. The
+      # response SHAPE is a cultivar property taken from the reference project;
+      # VBASE and VERSAT are the two levers worth moving.
+      VBASE:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 0.0
+        high: 30.0
+        precision: 1
+        controls: [vernalisation_onset, flowering_timing]
+        coupled_with: [VERSAT]
+        meaning: >-
+          Base vernalisation requirement, in effective vernalising days: below it
+          no vernalisation counts towards development at all. Together with VERSAT
+          it sets the vernalisation response, which scales roughly as
+          (V - VBASE) / (VERSAT - VBASE). Raising it makes the crop harder to
+          vernalise and so delays anthesis, with the delay concentrated in mild
+          winters — the site-years that accumulate vernalising days slowly. Must
+          stay below VERSAT.
+      VERSAT:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 20.0
+        high: 90.0
+        precision: 1
+        controls: [vernalisation_requirement, flowering_timing]
+        coupled_with: [VBASE]
+        meaning: >-
+          Saturated vernalisation requirement, in effective vernalising days: the
+          cold accumulation at which vernalisation is complete and development
+          proceeds on thermal time alone. THE vernalisation lever on flowering
+          date. Its signature is what separates it from TSUM1: a TSUM1 error is a
+          flowering bias of similar size in every year, while a vernalisation
+          error is late in MILD winters and near zero in cold ones, and grows from
+          north to south. Check that before moving it. Winter wheat cultivars
+          measure roughly 30-70 d; a value near the low end is effectively a
+          spring type.
+
+      TsumIncrementTableRate:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.7, 1.4]
+        clip: [0.0, 40.0]
+        precision: 3
+        controls: [thermal_response_shape]
+        meaning: >-
+          Development rate as a function of mean temperature — the shape of the
+          thermal response, on the frozen TsumIncrementTableMeanTemp grid. Reach
+          for it only when TSUM1/TSUM2 cannot remove a bias that is structured by
+          temperature, because it changes the response at every stage at once.
+      PhotoperiodTableFactor:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.7, 1.3]
+        clip: [0.0, 1.0]
+        precision: 3
+        controls: [photoperiod_response]
+        meaning: >-
+          Multiplier on the development rate as a function of day length, on the
+          frozen PhotoperiodTableHour grid. Only meaningful when IDSL enables the
+          photoperiod response. The signature is a flowering bias that varies with
+          LATITUDE at similar thermal time — a north-south gradient in the
+          residual that TSUM1 cannot remove.
+
+    constraints:
+      - id: emergence_base_below_ceiling
+        type: ordering
+        rule: TBASEM < TEFFMX
+        note: >-
+          The base temperature must be below the effective maximum, or the
+          thermal-time integral is undefined.
+      - id: vernalisation_base_below_saturation
+        type: ordering
+        rule: VBASE < VERSAT
+        note: >-
+          The base vernalisation requirement must be below the saturated one, or
+          the vernalisation fraction (V - VBASE) / (VERSAT - VBASE) is undefined.
+          Silently skipped for a crop that defines neither.
+      - id: photoperiod_factor_non_decreasing
+        type: table_monotone
+        param: PhotoperiodTableFactor
+        direction: non_decreasing
+        tolerance: 1.0e-6
+        note: >-
+          The photoperiod factor may not fall as days get longer — long-day crops
+          develop faster with more light, and the grid runs short to long.
+      - id: thermal_response_smooth
+        type: table_smoothness
+        param: TsumIncrementTableRate
+        max_ratio: 2.6
+        note: >-
+          Adjacent nodes of the temperature response may not jump by more than
+          this factor; a spike is a numerical artifact, not a physiology.
+      # Phenology is a two-parameter problem in almost every case. Changing more
+      # than two at once makes the flowering/duration attribution unreadable.
+      - id: small_steps
+        type: max_changed
+        limit: 2
+        max_elements: 3
+      - id: bounded_step_size
+        type: relative_step
+        max_fraction: 0.25
+
+  # =========================================================================
+  # STAGE 2 — GROWTH: yield against NUTS-3 district statistics.
+  #
+  # One view, one component:
+  #
+  #   objective = RMSE_yield / scale_yield      (dimensionless; <= 1.0 = at target)
+  #
+  # `scale` is the RMSE at which the component counts as 1.0, i.e. its own target.
+  # The raw RMSE is recorded and reported unchanged.
+  #
+  # WHAT IS NOT MEASURED HERE. The reference project scored a second component,
+  # DVS-binned LAI against GLASS retrievals, and calibrated the two together
+  # because the same parameters (RUE, KDIF, SLA, the partitioning tables) set
+  # biomass and leaf area at once. This project has no LAI observations on its own
+  # sites, so that component does not exist and the canopy is unconstrained by
+  # data. Two consequences worth stating before a parameter is moved:
+  #
+  #   * A yield error can be fixed by an implausible canopy — too much leaf area
+  #     compensating for too little RUE, or the reverse — and nothing in the
+  #     objective will object. The `crop_reference` envelope below (harvest index,
+  #     above-ground biomass) is the only guard, so check the attribution
+  #     diagnostics against it every iteration, not only at the end.
+  #   * Prefer the assimilation and partitioning levers over the pure canopy ones
+  #     (RGRLAI, SLATableSLA, LAICR, RDRSHM) unless the attribution frame actually
+  #     implicates leaf area. Those move a quantity nothing is scoring.
+  #
+  # Adding the LAI view back restores the joint objective — see the note in
+  # optimization/config.yaml for exactly what data it needs.
+  # =========================================================================
+  growth:
+    objective:
+      name: yield_rmse_scaled
+      components:
+        yield:
+          weight: 1.0
+          # Mean of the yearly-mean and district-mean yield RMSE (t/ha DM).
+          scale: 0.50
+    frozen: [phenology_parameters, response_table_grids]
+
+    # See the phenology stage. `best` matters here: a rejected change left in the
+    # file shifts the canopy as well as the yield, and the next hypothesis would
+    # be tested against a canopy nobody chose — one that nothing in the objective
+    # is watching.
+    acceptance: best
+
+    stopping:
+      max_iterations: 100
+      # 1.0 = both components at their `scale` on average.
+      target_objective: 1.0
+      # An iteration counts as an improvement only if it beats the best by this,
+      # on the combined (dimensionless) objective.
+      min_improvement: 0.01
+      # Stop after this many consecutive non-improving iterations.
+      patience: 20
+
+    parameters:
+      # -- canopy: level and timing of leaf area ---------------------------
+      RGRLAI:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.5, 2.0]
+        clip: [0.0005, 0.06]
+        precision: 3
+        controls: [early_growth, rise_rate]
+        meaning: >-
+          Maximum relative growth rate of LAI during the exponential (juvenile)
+          phase, before the canopy is source-limited. Raise it if simulated LAI
+          lags the observations early (DVS < 0.5) but the peak is right; lower it
+          if the canopy closes too fast. Has almost no effect after the crop
+          switches to SLA-driven leaf area expansion, and little on yield except
+          through early light interception.
+      TDWI:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.6, 1.5]
+        clip: [5.0, 25.0]
+        precision: 2
+        controls: [emergence_level]
+        meaning: >-
+          Initial total crop dry weight at emergence. Sets the starting LAI
+          (TDWI x leaf fraction x SLA(0)) and therefore the whole exponential
+          phase multiplicatively. Use it when LAI is offset from the very first
+          observation onwards rather than diverging gradually. Prefer RGRLAI when
+          the *slope* is wrong and TDWI when the *intercept* is wrong.
+      SLATableSLA:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.6, 1.6]
+        clip: [0.003, 0.05]
+        precision: 4
+        controls: [peak_lai, curve_shape, senescence_level]
+        meaning: >-
+          Specific leaf area (m2 leaf per g leaf dry matter) as a function of DVS,
+          on the frozen SLATableDVS grid. The direct lever on LAI *level* at each
+          phenological stage: LAI = leaf weight x SLA. Element i maps one-to-one
+          onto DVS bin i of the LAI diagnostics table, so a per-bin bias points
+          straight at the element to move. It changes leaf AREA without moving
+          assimilate, so it is the cheapest way to fix LAI when yield is already
+          acceptable — the yield response is only the indirect one through light
+          interception. Keep the profile smooth: SLA physically declines from
+          young to mature leaves.
+      LAICR:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.7, 1.4]
+        clip: [1.5, 8.0]
+        precision: 3
+        controls: [peak_lai, peak_duration]
+        meaning: >-
+          Critical LAI above which leaves start dying from mutual shading. Acts as
+          a soft ceiling on the plateau: if simulated peak LAI overshoots but the
+          rise and the senescence are both timed correctly, lowering LAICR caps the
+          peak without distorting the rest of the curve.
+      RDRSHM:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.5, 2.0]
+        clip: [0.002, 0.15]
+        precision: 4
+        controls: [peak_lai, peak_duration]
+        meaning: >-
+          Relative death rate of leaves from shading once LAI exceeds LAICR. Sets
+          how hard that ceiling bites. Raise it together with (or instead of)
+          lowering LAICR when the plateau is too high and too long.
+      RDRLeavesTableRelativeRate:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.5, 2.0]
+        clip: [0.0, 0.15]
+        precision: 4
+        controls: [senescence_rate]
+        meaning: >-
+          Temperature-dependent relative leaf death rate, on the frozen
+          RDRLeavesTableMeanTemp grid (cold -> warm). Governs how fast the canopy
+          declines after DVSDLT. Raise the warm-end elements when simulated
+          senescence is too slow; the cold-end elements mostly affect
+          overwintering canopy loss in the winter crops. A canopy that dies early
+          also stops filling grain, so watch the yield component when moving it.
+      DVSDLT:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 0.6
+        high: 1.8
+        precision: 3
+        controls: [senescence_timing]
+        meaning: >-
+          Development stage at which temperature-driven leaf death begins. The
+          timing lever for senescence onset. It is a *threshold on* DVS, not a
+          driver of DVS, so it does not touch the frozen phenology. Lower it when
+          the simulated canopy stays green too long after anthesis; raising it
+          lengthens the effective grain-filling window.
+      RDRNS:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.25, 4.0]
+        clip: [0.0005, 0.1]
+        precision: 4
+        controls: [senescence_rate, stress_response]
+        meaning: >-
+          Maximum relative leaf death rate under N-P-K stress. Only active where
+          the nutrient balance is limiting, so it changes LAI unevenly across
+          locations. Reach for it when the LAI bias is spatially structured rather
+          than uniform, and check NNI in the yearly output before moving it.
+      RDRL:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.5, 2.0]
+        clip: [0.0001, 0.12]
+        precision: 4
+        controls: [senescence_rate, stress_response]
+        meaning: >-
+          Maximum relative leaf death rate under water stress. Like RDRNS, it acts
+          selectively — on dry sites and dry years. Use it when the residual
+          pattern correlates with TRANRF rather than with DVS.
+
+      # -- assimilation: how much biomass is made --------------------------
+      RUETableRUE:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.6, 1.5]
+        clip: [0.2, 6.0]
+        precision: 3
+        affects_lai: true
+        controls: [biomass_level, peak_lai]
+        meaning: >-
+          Radiation use efficiency (g dry matter per MJ intercepted PAR) by DVS, on
+          the frozen RUETableDVS grid. The primary lever on total above-ground
+          biomass, and therefore on yield whenever the harvest index is already
+          right. Elements at DVS 0-1 set the biomass the crop brings into grain
+          filling; later elements set how much is still being fixed during it.
+          Raising RUE also raises leaf weight and hence LAI — in this joint stage
+          that shows up immediately in the LAI component, so use it when BOTH LAI
+          and yield are low, and prefer a partitioning or SLA change when only one
+          of them is.
+      KDIFTableK:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.7, 1.4]
+        clip: [0.3, 0.95]
+        precision: 3
+        affects_lai: true
+        controls: [light_interception, biomass_level]
+        meaning: >-
+          Extinction coefficient for diffuse visible light. Sets how much radiation
+          a given LAI intercepts. An alternative to RUE when the biomass deficit is
+          concentrated in low-LAI phases (early season, post-anthesis) rather than
+          being proportional across the whole season. It changes biomass without
+          changing the leaf-area calculation directly, so it moves yield more than
+          LAI — the reverse of SLA.
+
+      # -- partitioning: where the assimilate goes -------------------------
+      LeavesPartitioningTableFraction:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.7, 1.35]
+        clip: [0.0, 1.0]
+        precision: 4
+        affects_lai: true
+        coupled_with:
+          [
+            StemsPartitioningTableFraction,
+            StorageOrgansPartitioningTableFraction,
+          ]
+        controls: [peak_lai, rise_rate, harvest_index]
+        meaning: >-
+          Fraction of above-ground dry matter allocated to leaves, by DVS. Changes
+          LAI through leaf *weight* rather than through SLA, and unlike SLA it also
+          changes the pool left for stems and the storage organ — so it moves the
+          canopy and the harvest index at once. Use it when SLA alone cannot
+          reconcile peak LAI with observed biomass. Leaves + stems + storage organs
+          must still sum to 1 at every shared DVS node.
+      StemsPartitioningTableFraction:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.7, 1.35]
+        clip: [0.0, 1.0]
+        precision: 4
+        affects_lai: true
+        coupled_with:
+          [
+            LeavesPartitioningTableFraction,
+            StorageOrgansPartitioningTableFraction,
+          ]
+        controls: [partitioning_balance]
+        meaning: >-
+          Fraction of above-ground dry matter to stems, by DVS. In this workflow it
+          is the counterweight: it is what keeps above-ground partitioning summing
+          to 1 when leaf or storage-organ allocation is changed. Assimilate moved
+          into the grain after anthesis comes from here.
+      StorageOrgansPartitioningTableFraction:
+        enabled: true
+        kind: table
+        type: float
+        mode: relative
+        factor: [0.7, 1.3]
+        clip: [0.0, 1.0]
+        precision: 4
+        affects_lai: true
+        coupled_with:
+          [StemsPartitioningTableFraction, LeavesPartitioningTableFraction]
+        controls: [harvest_index]
+        meaning: >-
+          Fraction of above-ground dry matter routed to the storage organ (grain,
+          tuber, seed), by DVS. The harvest-index lever: use it when simulated
+          AGBiomass matches the observations but yield does not — i.e. when the
+          yield diagnostics attribute the error to HI rather than to biomass. Note
+          that in crops whose crop.xml has a hard 0->1 step at anthesis (winter
+          wheat, spring barley) the tables are pinned by the closure constraint and
+          the harvest index has to be reached through RUE or FRTDM instead.
+      FRTDM:
+        enabled: true
+        kind: scalar
+        type: float
+        # Absolute, not relative: the five crops start anywhere from 0.01
+        # (rapeseed) to 0.2 (spring barley), and relative bounds around 0.01 would
+        # pin rapeseed to a range far too narrow to test the mechanism at all.
+        mode: absolute
+        low: 0.0
+        high: 0.35
+        precision: 3
+        controls: [translocation, harvest_index]
+        meaning: >-
+          Fraction of pre-anthesis above-ground biomass available for
+          remobilisation to the storage organ. The one translocation parameter the
+          solution actually consumes — the input to the BiomassTranslocation
+          component, whose result is reported as Yield_translocated_t_ha. Raising
+          it moves assimilate laid down in leaves and stems before anthesis into
+          the grain, which raises the harvest index WITHOUT changing total
+          above-ground biomass and without touching the canopy. That makes it the
+          right lever when biomass is plausible, the harvest index is not, and the
+          partitioning tables are a step function that cannot be moved. Read the
+          `translocation` block of the yield diagnostics first: it scores
+          Yield_t_ha and Yield_translocated_t_ha against the same observed district
+          yields and says whether the remobilisation term is helping or
+          overshooting. Measured remobilisation in small-grain cereals is roughly
+          10-25% of pre-anthesis assimilate.
+
+      # -- nitrogen limitation on grain filling ----------------------------
+      NMAXSO:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.6, 1.5]
+        clip: [0.005, 0.06]
+        precision: 4
+        controls: [yield_n_limit]
+        meaning: >-
+          Maximum N concentration in the storage organ. Together with the N
+          translocated from leaves and stems it caps grain filling under N
+          limitation. Relevant when the yield shortfall tracks NNI or fertiliser
+          rate rather than radiation.
+      TCNT:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: relative
+        factor: [0.5, 2.0]
+        clip: [2.0, 40.0]
+        precision: 2
+        controls: [grain_filling_dynamics]
+        meaning: >-
+          Time coefficient for N translocation to the storage organ (days). Shorter
+          means faster remobilisation and earlier completion of grain filling.
+          Affects how much of a short grain-filling period the crop can exploit, so
+          it shows up as a yield error correlated with season length.
+      NLUE:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 0.8
+        high: 2.0
+        precision: 3
+        controls: [stress_response]
+        meaning: >-
+          Coefficient for the reduction of RUE under N stress. Higher values make
+          the crop more sensitive to a low nitrogen index. Use it when the yield
+          bias is spatially structured along the fertiliser/soil-N gradient rather
+          than uniform.
+      DVSNT:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 0.5
+        high: 1.2
+        precision: 3
+        controls: [grain_filling_dynamics]
+        meaning: >-
+          Development stage above which N translocation to the storage organ
+          starts. A threshold on DVS, not a driver of it — frozen phenology is
+          unaffected. Earlier onset lengthens the effective filling window.
+      DVSNLT:
+        enabled: true
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 1.0
+        high: 1.6
+        precision: 3
+        controls: [grain_filling_dynamics]
+        meaning: >-
+          Development stage above which the crop takes up no further N. Sets how
+          long post-anthesis uptake can keep supplying the grain. Must stay above
+          DVSNT.
+
+      # ---------------------------------------------------------------------
+      # Disabled — kept as documentation rather than deleted.
+      #
+      # Both are declared under the `crop` resource in solution.sol.xml but are
+      # taken as an input by no simcomponent, so writing them changes nothing in
+      # the simulation. Any objective movement while calibrating them would be
+      # noise being read as signal.
+      # ---------------------------------------------------------------------
+      YieldAdjustRatio:
+        enabled: false
+        disabled_reason: >-
+          declared in solution.sol.xml but consumed by no simcomponent (verified by
+          grep for source="crop.YieldAdjustRatio") — changing it cannot change any
+          simulated value
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 0.8
+        high: 1.2
+        precision: 3
+        controls: [yield_scale]
+        meaning: >-
+          Intended as a multiplicative correction on reported yield. Inert in this
+          solution. If it is ever wired up, treat it as the last resort: it changes
+          nothing inside the growth simulation, so it can only remove a uniform
+          offset, never a pattern.
+      FreshratioStorageOrgan:
+        enabled: false
+        disabled_reason: >-
+          declared in solution.sol.xml but consumed by no simcomponent — changing
+          it cannot change any simulated value; the per-crop `dm_fraction` in
+          config.yaml is what actually puts observed yield on a dry-matter basis
+        kind: scalar
+        type: float
+        mode: absolute
+        low: 0.75
+        high: 0.95
+        precision: 3
+        controls: [yield_scale, moisture_basis]
+        meaning: >-
+          Intended as the dry-matter fraction converting storage-organ weight to
+          the reported yield basis (~0.86 = 14% moisture for cereals). Inert in
+          this solution.
+
+    constraints:
+      - id: sla_profile_smooth
+        type: table_smoothness
+        param: SLATableSLA
+        max_ratio: 1.9
+        note: >-
+          Adjacent SLA nodes may not differ by more than this factor. A saw-toothed
+          SLA profile produces a physically meaningless LAI trajectory that the
+          DVS-binned RMSE cannot see.
+      - id: sla_declines_to_maturity
+        type: table_endpoint_order
+        param: SLATableSLA
+        rule: last_le_max
+        tolerance: 0.0005
+        note: SLA at maturity must not exceed the profile maximum — old leaves are thicker.
+      - id: leaf_rdr_non_decreasing_with_temp
+        type: table_monotone
+        param: RDRLeavesTableRelativeRate
+        direction: non_decreasing
+        tolerance: 1.0e-6
+        note: Leaf death rate must not fall as mean temperature rises.
+      - id: rue_declines_after_anthesis
+        type: table_monotone_from
+        param: RUETableRUE
+        grid_param: RUETableDVS
+        from_x: 1.0
+        direction: non_increasing
+        tolerance: 1.0e-6
+        note: >-
+          Radiation use efficiency may not rise after anthesis — photosynthetic
+          capacity declines as the canopy ages.
+      - id: rue_maturity_lowest
+        type: table_endpoint_order
+        param: RUETableRUE
+        rule: last_le_first
+        tolerance: 1.0e-6
+        note: RUE at maturity must not exceed RUE at emergence.
+      - id: storage_organ_non_decreasing
+        type: table_monotone
+        param: StorageOrgansPartitioningTableFraction
+        direction: non_decreasing
+        tolerance: 1.0e-6
+        note: >-
+          Allocation to the storage organ may not fall back as development
+          proceeds — the crop does not un-fill its grain.
+      - id: above_ground_partitioning_sums_to_one
+        type: partition_sum
+        tables:
+          - LeavesPartitioningTable
+          - StemsPartitioningTable
+          - StorageOrgansPartitioningTable
+        tolerance: 0.005
+        note: >-
+          Above-ground allocation must sum to 1 at every DVS node where it already
+          did. Checked against the pre-change profile so the existing
+          differing-grid artifacts in some crops are not reported as new breakage.
+      - id: n_thresholds_ordered
+        type: ordering
+        rule: DVSNT < DVSNLT
+        note: N translocation must start before N uptake stops.
+      - id: small_steps
+        type: max_changed
+        limit: 3
+        max_elements: 4
+        note: >-
+          At most 3 parameters (a table counts as one) and at most 4 individual
+          table elements per iteration. With two objectives being watched at once,
+          an iteration that moves more than this cannot be attributed to either.
+      - id: bounded_step_size
+        type: relative_step
+        max_fraction: 0.5
+        note: No single value may move more than 50% of its previous value in one iteration.
+
+# ---------------------------------------------------------------------------
+# Agronomic reference ranges, per crop.
+#
+# Used *only* by the yield attribution in calib_diagnostics.py, to answer "is the
+# simulated harvest index plausible, or the simulated biomass?" — the question
+# that separates a RUE/light-interception problem from a partitioning problem.
+# These are not calibration targets and nothing is scored against them; they are
+# the plausibility envelope the diagnostics reason inside.
+#
+# All values on a DRY-MATTER basis, German conditions.
+#   harvest_index   = storage organ DM / above-ground DM at maturity
+#   ag_biomass_t_ha = total above-ground DM at maturity
+# ---------------------------------------------------------------------------
+crop_reference:
+  winter_wheat:
+    harvest_index: [0.38, 0.55]
+    ag_biomass_t_ha: [11.0, 20.0]
+  winter_rapeseed:
+    harvest_index: [0.22, 0.38]
+    ag_biomass_t_ha: [9.0, 18.0]
+  spring_barley:
+    harvest_index: [0.38, 0.55]
+    ag_biomass_t_ha: [8.0, 15.0]
+  potato:
+    # Storage organ is the tuber; the fraction of DM in the tuber is high.
+    harvest_index: [0.65, 0.85]
+    ag_biomass_t_ha: [8.0, 16.0]
+  maize:
+    # Grain maize. Silage maize would have no meaningful HI target.
+    harvest_index: [0.42, 0.58]
+    ag_biomass_t_ha: [14.0, 26.0]
+  sugar_beet:
+    # Storage organ is the beet root; a high share of above-ground DM plus root.
+    # Brandenburg's sandy soils sit at the low end of the German biomass range.
+    harvest_index: [0.55, 0.75]
+    ag_biomass_t_ha: [12.0, 22.0]
+
+# ---------------------------------------------------------------------------
+# Local LLM agents (optimization/agents/, driven by optimization/agentic.py).
+#
+# Everything runs on this machine: the agent talks to a local Ollama server over
+# HTTP, gets back a JSON proposal, and that proposal goes through exactly the
+# same validation, freeze guard and ledger as a hand-written one. The model is
+# the decision-maker, not an optimizer — it never sees a search space, only the
+# current values, the bounds, the biological `meaning` above, the diagnostics
+# and the history of what has already been tried.
+#
+# `host` is overridden by the OLLAMA_HOST environment variable when set.
+# Check the setup with:  python optimization/agentic.py check
+# ---------------------------------------------------------------------------
+llm:
+  provider: ollama # ollama | mock  (mock is for the test suite)
+  host: http://localhost:11434
+  # A calibration prompt carries the full parameter table, the diagnostics and
+  # the history, which is large; and a cold local model is slow. The growth stage
+  # carries two sets of diagnostics, so it is the largest of the two.
+  num_ctx: 65536
+  # Guaranteed room for the answer, so the prompt cannot consume the whole budget.
+  num_predict: 2048
+  request_timeout: 900
+
+  # Reasoning models (qwen3.x, deepseek-r1, …) return their chain of thought in a
+  # separate `thinking` field and will happily spend the entire generation budget
+  # on it, leaving `content` empty. Thinking buys nothing here: the reply schema
+  # already requires `analysis` and `reasoning`, and those land in the OUTPUT,
+  # where the ledger records them and the next iteration can read them back.
+  think: false
+
+  # How many recent iterations are shown in full. Older ones are compressed to one
+  # line each — enough to stop a parameter being re-proposed, without letting the
+  # prompt grow without bound as the ledger fills up.
+  history_iterations: 6
+  # Malformed JSON or a proposal that violates a constraint is handed back to the
+  # model with the exact error, this many times, before the iteration is skipped.
+  max_repair_attempts: 20
+  # Recorded in the ledger with every proposal, so a decision can always be traced
+  # to the model that made it.
+  record_prompts: true
+
+  agents:
+    # Any instruction-tuned local model works. These defaults are a starting
+    # point for a 24-48 GB GPU; drop to :7b / :8b variants on smaller hardware.
+    # Low temperature throughout: a calibration decision should be reproducible,
+    # and the diversity that helps creative writing shows up here as parameter
+    # thrash.
+    phenology:
+      model: qwen3.6:35b-a3b
+      # Phenology has the cleanest attribution rules of the two stages
+      # (flowering -> TSUM1, duration -> TSUM2), so there is nothing to gain from
+      # sampling.
+      temperature: 0.5
+    growth:
+      model: qwen3.6:35b-a3b
+      temperature: 0.2
+    analyst:
+      # Read-only: writes the narrative interpretation of a run, proposes nothing.
+      model: qwen3.6:35b-a3b
+      temperature: 0.3
