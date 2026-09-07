@@ -35,7 +35,7 @@
       <value>1</value>
       <value>1</value>
     </parameter>
-    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">1623</parameter>
+    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">975.0</parameter>
     <parameter id="TSUM2" description="temperature sum from anthesis to maturity" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">1020</parameter>
     <parameter id="TsumIncrementTableMeanTemp" description="Daily increase in temperature sum as function of av. temp. [Cel;Cel d]" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">
       <value>-5.00</value>

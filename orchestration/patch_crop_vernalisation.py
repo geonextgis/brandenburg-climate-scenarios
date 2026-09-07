@@ -76,9 +76,25 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 VERNRT_PAIRS = [(-10.0, 0.0), (-4.0, 0.0), (3.0, 1.0),
                 (10.0, 1.0), (17.0, 0.0), (30.0, 0.0)]
 
+# ``retsum`` is a COUPLED, one-time correction: (from, to) for TSUM1, applied only
+# when TSUM1 still holds the inherited value. Winter rapeseed is sown ~20 August
+# into >17 C weather, where VERNRT's rate is 0, so VERN sits below VBASE and the
+# factor clamps to exactly 0 (cMinimalVernalisationFactor defaults to 0.0 and
+# nothing wires it) — development is frozen for ~5 weeks every autumn. With the
+# inherited TSUM1=1097 the season then runs out before DVS 2: no maturity, no
+# harvest, and therefore NO YEARLY OUTPUT AT ALL, which leaves the phenology
+# objective with zero matched pairs and stage 1 unable to start. Measured at site
+# 49612: maxDVS 1.61/1.93 vernalising vs 2.008/2.015 not, and 2.016/2.018 once
+# TSUM1 is 400 — the value the reference project calibrated with vernalisation on.
+#
+# This is a STARTING POINT, not a calibrated value; stage 1 refines it (400 makes
+# anthesis somewhat early, 1097 makes maturity unreachable, so the answer is
+# between them). The `from` guard is what makes re-running safe: once TSUM1 holds
+# anything else — in particular a value `calibrate.py promote` wrote — this step
+# is skipped rather than clobbering it.
 WINTER_CROPS: dict[str, dict] = {
     "winter_wheat":    {"VBASE": 14.0, "VERSAT": 70.0},
-    "winter_rapeseed": {"VBASE": 7.0,  "VERSAT": 24.0},
+    "winter_rapeseed": {"VBASE": 7.0,  "VERSAT": 24.0, "retsum": (1097.0, 400.0)},
 }
 
 IDSL_LINE = ('    <parameter id="IDSL" description="pre-anthesis development depends on '
@@ -128,8 +144,16 @@ def solution_is_patched(text: str) -> bool:
             and '<res id="VERSAT"' in text and '<res id="VERNRT"' in text)
 
 
-def patch_crop(text: str, vbase: float, versat: float) -> tuple[str, list[str]]:
+def patch_crop(text: str, vbase: float, versat: float,
+               retsum: tuple[float, float] | None = None) -> tuple[str, list[str]]:
     done: list[str] = []
+
+    if retsum:
+        was, now = retsum
+        m = re.search(r'(<parameter id="TSUM1"[^>]*>)\s*([0-9.]+)\s*(</parameter>)', text)
+        if m and float(m.group(2)) == was:
+            text = text[:m.start()] + f"{m.group(1)}{now:g}{m.group(3)}" + text[m.end():]
+            done.append(f"TSUM1 {was:g} -> {now:g} (vernalisation needs a reachable maturity)")
 
     m = re.search(r'^[ \t]*<parameter id="IDSL".*?</parameter>[ \t]*$', text, flags=re.M | re.S)
     if not m:
@@ -222,7 +246,8 @@ def main() -> int:
             continue
 
         v = WINTER_CROPS[crop]
-        new_crop, done_crop = patch_crop(crop_text, v["VBASE"], v["VERSAT"])
+        new_crop, done_crop = patch_crop(crop_text, v["VBASE"], v["VERSAT"],
+                                         v.get("retsum"))
         new_sol, done_sol = patch_solution(sol_text)
         if not (done_crop or done_sol):
             print(f"  [ unchanged ] {crop} (already vernalising)")

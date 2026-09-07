@@ -391,6 +391,27 @@ the Germany-wide reference project. `VBASE` and `VERSAT` are now calibratable in
 stage 1 and frozen for stage 2; `VERNRT` stays frozen — the response *shape* is a
 cultivar property, the two thresholds are the levers.
 
+**Winter rapeseed needed a coupled `TSUM1` correction, 1097 -> 400.** It is sown
+~20 August into >17 °C weather, where `VERNRT`'s rate is 0, so `VERN` sits below
+`VBASE` and the factor clamps to *exactly* 0 — `cMinimalVernalisationFactor`
+defaults to 0.0 and nothing wires it — freezing development for ~5 weeks every
+autumn. At the inherited `TSUM1=1097` the season then ran out before DVS 2, so
+the crop never reached `DoHarvest`: **no yearly output at all**, which leaves the
+phenology objective with zero matched pairs and stage 1 unable to start. Measured
+at site 49612 over two seasons:
+
+| configuration | max DVS | yearly rows |
+| --- | --- | --- |
+| no vernalisation, TSUM1 1097 (as inherited) | 2.008 / 2.015 | 2 |
+| vernalisation, TSUM1 1097 | **1.613 / 1.931** | **0** |
+| vernalisation, TSUM1 400 | 2.016 / 2.018 | 2 |
+
+400 is the reference project's calibrated value and is a *starting point*, not a
+result — it makes anthesis somewhat early, so stage 1 will settle between the two.
+The patcher only rewrites `TSUM1` when it still holds exactly 1097, so re-running
+it can never clobber a value `calibrate.py promote` wrote. Winter wheat is sown
+into cold in late October, never fully stalls, and needed no such correction.
+
 **Expect the phenology baseline to get worse before calibration improves it.**
 Vernalisation delays anthesis (8-16 d at a Berlin site over two seasons), and the
 pre-vernalisation residual was already ~26 d late, so `TSUM1` has to come down
