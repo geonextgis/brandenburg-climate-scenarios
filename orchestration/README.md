@@ -13,6 +13,7 @@ per crop, and the builders that produce the inputs it needs.
 | `build_co2_historical.py` | reconstructs 1951-01 … 1958-02 CO₂ ahead of the Mauna Loa record |
 | `hold_nodes.py` | holds one SLURM allocation across a calibration session |
 | `consolidate_outputs.py` | collapses each experiment's per-location outputs into one table |
+| `check_runs.py` | verifies finished experiments: inputs, outputs, completeness, CO₂ |
 
 ## Order of operations
 
@@ -38,9 +39,9 @@ python orchestration/generate.py --crop maize --climate GFDL-ESM4_ssp370 [--dry-
 ```
 
 Each call writes `simplace/<crop>/runs/<climate>/` containing a project table, a
-templated `project.proj.xml`, the scenario CO₂ as `data/co2/co2.csv`, symlinks to
-the crop's shared inputs and solution, and a `config.yaml`. Submit with the
-shared runner:
+templated `project.proj.xml`, the scenario CO₂ as `data/co2/co2.csv`, a rendered
+`solution/solution.sol.xml`, symlinks to the crop's shared inputs, a `config.yaml`
+and a `MANIFEST.json`. Submit with the shared runner:
 
 ```bash
 python simplace/runners/simplace_runner_cluster.py simplace/<crop>/runs/<exp_id>/config.yaml
@@ -70,6 +71,69 @@ been wasted:
 - **CO₂ coverage against the actual windows.** The CO₂ resource does an exact
   `(year, month)` lookup every simulated day, so a window that runs past the end
   of its record is a NullPointerException. The run dir is not written.
+
+## Which outputs a run writes
+
+`generate.py` renders the crop's `solution/solution.sol.xml` into the run dir
+instead of symlinking it, and drops every `frequence="DAILY"` output — with the
+interface it wrote through, so no empty `daily/` directory is created either —
+unless daily output is asked for:
+
+```yaml
+outputs:
+  daily: false        # production: yearly output only
+```
+
+```bash
+python orchestration/generate.py --crop winter_wheat --climate all            # honours the config
+python orchestration/generate.py --crop winter_wheat --climate all --daily    # keep it, this once
+```
+
+The yearly output (`LintulYearly`, fired on `HarvestManagement.DoHarvest`) is
+what the matrix is for: one row per site per harvest with yield, phenology dates,
+biomass, CO₂, water stress and the soil summaries. The daily table is roughly
+three orders of magnitude larger — a winter-wheat future experiment is ~10⁹ daily
+rows against ~1.3 M yearly ones — and nothing downstream of
+`consolidate_outputs.py` reads it.
+
+This does **not** touch the crop's own solution, which the calibration run dirs
+use and which still needs daily output for the LAI and DVS diagnostics. The
+rendering is per run dir; the shared file is read-only here.
+
+Two consequences of the solution being a copy rather than a symlink:
+
+- **`data/crop` is still a symlink**, so the calibrated `crop.xml` that
+  `calibrate.py promote` writes is picked up by every run dir without
+  regenerating anything. Its SHA-256 is recorded in `MANIFEST.json`, so a
+  finished experiment can still prove which parameters it ran with — and
+  `check_runs.py` fails an experiment whose `crop.xml` changed after generation.
+- **Patching a solution now means regenerating the run dirs.** `check_runs.py`
+  re-renders the shared solution and warns when a run dir has drifted from it.
+
+## Verifying a finished set
+
+```bash
+python orchestration/check_runs.py --crop winter_wheat              # one line per experiment
+python orchestration/check_runs.py --crop winter_wheat --verbose    # every check, not just problems
+```
+
+Exit status is 0 when everything passes, 1 if anything FAILed. Per experiment it
+checks what the run read, what it was allowed to write, whether it finished, and
+whether what it wrote is populated:
+
+| check | FAIL means |
+| --- | --- |
+| `co2` | the staged `data/co2/co2.csv` is not the record the scenario binds to — the run experienced the wrong atmosphere |
+| `parameters` | `crop.xml` changed after the run dir was generated, so the run is not comparable with the rest of the matrix |
+| `outputs` | a DAILY output is still declared when it should not be, or the yearly output is missing entirely |
+| `daily files` | daily files were written despite `outputs.daily: false` |
+| `site coverage` | missing PointIDs form a **contiguous block** — a job step died. Scattered ones are only a warning: those sites never reached harvest, which is physics |
+| `CO2 in output` | the CO₂ column of the yearly output lies outside the staged record's range — the file that reached the model was not the one on disk |
+| `empty files` | header-only outputs: windows that never reached `DoHarvest` |
+
+`completed` is a warning rather than a failure because only the campaign
+(`--mode alloc`) writes `.completed_<exp_id>`; the per-experiment `sbatch` path
+never does.
 
 ## Submitting a set of experiments
 

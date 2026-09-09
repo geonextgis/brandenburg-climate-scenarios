@@ -67,8 +67,12 @@ simplace/
 - `data_observed/`            — observed phenology / yield (district-level) and LAI
 - `runs/<exp_id>/`            — generated run dirs, one per climate. Each holds its
   own `config.yaml` (+ `config_smoke.yaml`), `project/project.csv`, templated
-  `project.proj.xml`, and a staged `data/co2/co2.csv`. Produced by
-  `orchestration/generate.py` — do not hand-edit.
+  `project.proj.xml`, a staged `data/co2/co2.csv`, a **rendered**
+  `solution/solution.sol.xml` (the crop's solution minus the outputs this run
+  does not write — see *Model outputs*) and a `MANIFEST.json` recording what the
+  run reads. Produced by `orchestration/generate.py` — do not hand-edit.
+  `data/crop` stays a symlink, so a promoted `crop.xml` reaches every run dir
+  without regeneration.
 - `runs_optim/calib_<target>/` — isolated calibration run dirs (generated)
 - `out/<EXP_NAME>/{daily,yearly}/` — simulation outputs
 
@@ -180,6 +184,30 @@ observed record is updated.
 The records live once, in `climate/co2/`, because CO₂ is a property of the
 scenario and not of the crop.
 
+## Model outputs
+
+Each solution declares two outputs. `outputs.daily` in `experiments.yaml` decides
+which of them a generated run dir is allowed to write:
+
+| output | fires | rows per experiment (winter wheat, future) |
+| --- | --- | --- |
+| `Daily_crop_growth` (`frequence="DAILY"`) | every simulated day | ~10⁹ |
+| `LintulYearly` (`rule="HarvestManagement.DoHarvest"`) | once per harvest | ~1.3 M |
+
+`outputs.daily: false` (the production default) makes `generate.py` **render**
+the crop's solution into the run dir with every `frequence="DAILY"` output
+removed, along with the interface it wrote through — so no empty `daily/`
+directory is created either. `--daily` / `--no-daily` override it per call.
+
+Two things follow from the run dir holding a rendered *copy* of the solution
+rather than the symlink it used to hold:
+
+- The crop's own `solution/solution.sol.xml` is untouched, so the calibration run
+  dirs keep their daily output — `calib_diagnostics` plots simulated LAI and DVS
+  curves and cannot work without it.
+- **A solution patched after generation does not reach existing run dirs.**
+  Re-run `generate.py`; `check_runs.py` warns when a run dir has drifted.
+
 ## Experiment Matrix
 
 | Type       | Period      | Climate                   | Scenarios | CO₂        | Management (`vIDPL`)             |
@@ -218,6 +246,8 @@ experiment can write up to 15 066 output files. Thin the site set with
 matures gets **no file at all**. To tell "never matured" from "the step crashed",
 check whether the missing PointIDs are scattered (physics) or form a contiguous
 `start_line`–`end_line` block (a failed job step), and confirm against `sacct`.
+`orchestration/check_runs.py` makes that distinction for you and prints the
+offending line range.
 
 ## Running Simulations
 
@@ -265,6 +295,23 @@ itself.
 
 Smoke-test first with the run dir's `config_smoke.yaml` (3 locations, 1 node,
 output namespaced `SMOKE_<exp_id>`).
+
+Verify before consolidating:
+
+```bash
+python orchestration/check_runs.py --crop <crop>              # one line per experiment
+python orchestration/check_runs.py --crop <crop> --verbose    # every check
+```
+
+It answers the four questions a finished experiment has to be able to answer —
+what it read (the staged CO₂ record byte-for-byte, the `crop.xml` digest against
+the one recorded at generation), what it was allowed to write (no DAILY output,
+the yearly output present), whether it finished (`.completed_<exp_id>`), and
+whether what it wrote is populated: site coverage with missing PointIDs
+classified contiguous-block (a dead job step, FAIL) versus scattered (never
+matured, a warning), header-only files, and the CO₂ column of the yearly output
+checked against the range of the record that was supposed to be staged. Exit
+status 0 = all clear, 1 = something must be rerun.
 
 Consolidate finished experiments into one table each with
 `python orchestration/consolidate_outputs.py` — the per-location files are a poor

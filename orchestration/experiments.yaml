@@ -52,6 +52,26 @@ crops:
 points:
   stride: 1 # 1 = every site
 
+# Model outputs --------------------------------------------------------------
+# Which outputs the generated run dirs are allowed to write. `generate.py`
+# renders the crop's solution into each run dir (it is no longer symlinked) and
+# drops every `frequence="DAILY"` output when `daily: false`, together with the
+# now-unreferenced interface it wrote through.
+#
+# The yearly output is what the whole matrix is for: one row per site per
+# harvest, fired on HarvestManagement.DoHarvest, holding yield, phenology dates,
+# biomass, CO2, water stress and the soil summaries. Nothing downstream of
+# consolidate_outputs.py reads the daily table, and for the production runs it is
+# the dominant cost — a single winter-wheat future experiment is on the order of
+# 10^9 daily rows against ~1.3 M yearly ones, spread over 15 066 files.
+#
+# This does NOT touch the crop's own solution/solution.sol.xml, which the
+# calibration run dirs use: the diagnostics there plot simulated LAI and DVS
+# curves and need the daily table. Override per invocation with
+# `generate.py --daily` / `--no-daily`.
+outputs:
+  daily: false # false = yearly output only (production); true = daily as well
+
 # Climate sources -----------------------------------------------------------
 # Same models and scenarios as the reference Germany-wide project, so results
 # from the two are directly comparable.
@@ -88,9 +108,9 @@ co2:
 # SLURM / Singularity defaults for the generated `cluster:` blocks.
 slurm:
   singularity_image: /beegfs/common/singularity/simplace/simplace_5.0-3897.sif
-  partition: compute
-  walltime: "06:00:00"
-  num_nodes: 50 # per experiment; sized so many experiments can run concurrently
+  partition: highmem
+  walltime: "48:00:00"
+  num_nodes: 10 # per experiment; sized so many experiments can run concurrently
   num_tasks_per_node: 8
   cpus_per_node: 80 # cores per compute node; sets cpus-per-task = this / tasks
   # Size of the partition. Each runner blocks until its own jobs finish, so the

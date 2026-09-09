@@ -6,13 +6,22 @@ under ``simplace/<crop>/runs/<exp_id>/`` so that all 17 experiments per crop can
 be generated and submitted without clobbering each other:
 
     runs/<exp_id>/
-      solution/solution.sol.xml   -> symlink to the crop's shared solution
+      solution/solution.sol.xml   (rendered: the crop's solution minus the outputs
+                                   this run does not write — see outputs.daily)
       data/{crop,management,slim,soilcnp,soil} -> symlinks to the crop's shared inputs
       data/co2/co2.csv            (real file: the CO2 forcing for this climate)
       project/project.proj.xml    (templated: weather path + divider per climate)
       project/project.csv         (generated: period + grid + vIDPL management)
       config.yaml                 (the `cluster:` block for simplace_runner_cluster.py)
+      MANIFEST.json               (what this run reads and writes — checked afterwards
+                                   by orchestration/check_runs.py)
       out/                        (created by the runner)
+
+``data/crop`` stays a symlink to the crop's shared inputs, so the calibrated
+``crop.xml`` that ``calibrate.py promote`` writes is what every run reads: the
+production matrix never carries its own stale copy of the parameters. Its
+digest is recorded in MANIFEST.json so a finished run can still prove which
+parameters it ran with.
 
 There is **no soil-scenario dimension** in this project. Soil is a fixed property
 of the Brandenburg 1 km sites, so ``data/soil`` is a symlink like the other
@@ -49,16 +58,21 @@ Usage:
   python orchestration/generate.py --crop maize --climate DWD
   python orchestration/generate.py --crop maize --climate GFDL-ESM4_ssp370 --dry-run
   python orchestration/generate.py --crop all --climate all
+  python orchestration/generate.py --crop winter_wheat --climate all --no-daily
 """
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import gzip
 import hashlib
+import json
 import os
 import re
 import shutil
+import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -105,6 +119,15 @@ SHARED_DATA_SUBDIRS = ["crop", "management", "slim", "soilcnp", "soil"]
 # Locations included in the generated config_smoke.yaml. Enough to exercise every
 # input path (weather, soil, co2, management) on one node in a few minutes.
 SMOKE_LOCATIONS = 3
+
+# `frequence="DAILY"` on an <output> is what makes SIMPLACE write one row per
+# simulated day per site. For the production matrix that is the dominant cost:
+# a winter-wheat future experiment is ~15 066 sites x ~86 windows x 730 days,
+# i.e. ~10^9 rows, against ~1.3 M rows of yearly output for the same run. The
+# analysis in notebooks/04_evaluation reads the yearly table only, so daily
+# output is turned off per run (`outputs.daily: false`) rather than per crop —
+# calibration still needs it, and the shared solution is left untouched.
+DAILY_FREQUENCE = re.compile(r'\bfrequence\s*=\s*"DAILY"', re.IGNORECASE)
 
 
 @dataclass
@@ -314,6 +337,119 @@ def render_proj_xml(template_text: str, climate: Climate) -> str:
     return text
 
 
+# --- solution rendering -----------------------------------------------------
+def render_solution(template_text: str, keep_daily: bool) -> tuple[str, list[str]]:
+    """Return the run's solution, with the DAILY outputs removed unless kept.
+
+    The crop's own ``solution/solution.sol.xml`` is the calibration solution and
+    stays as it is: the calibration diagnostics plot simulated LAI and DVS curves
+    and need the daily table. A production run does not — nothing downstream of
+    ``consolidate_outputs.py`` reads it — so the run dir gets a *rendered copy*
+    rather than the symlink it used to get, exactly like ``data/co2/co2.csv``:
+    what the experiment was run with is recorded in the experiment.
+
+    Removing the ``<output>`` leaves its ``<interface>`` referenced by nothing, so
+    that goes too — otherwise SIMPLACE still creates the (empty) ``daily/``
+    directory it points at. An interface is only dropped when the id it declares
+    no longer appears anywhere else in the file.
+
+    Returns (text, removed_output_ids). Raises if the result is not parseable XML
+    or if no <output> survived at all — a solution with nothing left to write
+    still simulates every site, quietly, which is the failure mode this whole
+    file exists to prevent.
+    """
+    if keep_daily:
+        return template_text, []
+
+    removed: list[str] = []
+    interfaces: list[str] = []
+
+    def _drop(match: re.Match) -> str:
+        head = match.group(1)
+        if not DAILY_FREQUENCE.search(head):
+            return match.group(0)
+        oid = re.search(r'id="([^"]+)"', head)
+        iface = re.search(r'interface="([^"]+)"', head)
+        removed.append(oid.group(1) if oid else "?")
+        if iface:
+            interfaces.append(iface.group(1))
+        return (f'<!-- output {removed[-1]} (frequence=DAILY) removed by '
+                f'orchestration/generate.py: outputs.daily is off for this run -->')
+
+    text = re.sub(r"(<output\b[^>]*>).*?</output>", _drop, template_text, flags=re.DOTALL)
+
+    for iface in interfaces:
+        # The interface declaration itself contributes one occurrence of the id.
+        # Anything more means something still reads or writes through it.
+        if len(re.findall(rf'"{re.escape(iface)}"', text)) > 1:
+            continue
+        text = re.sub(rf'\s*<interface id="{re.escape(iface)}"[^>]*>.*?</interface>',
+                      f'\n\t\t<!-- interface {iface} removed with its DAILY output -->',
+                      text, flags=re.DOTALL)
+
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise RuntimeError(f"rendered solution is not valid XML: {exc}") from exc
+    kept = [o.get("id") for o in root.iter("output")]
+    if not kept:
+        raise RuntimeError(
+            "rendered solution declares no <output> at all — SIMPLACE would run "
+            "every site to completion and write nothing.")
+    return text, removed
+
+
+def write_or_replace(path: Path, text: str) -> None:
+    """Write a real file where a symlink from an older generation may still sit."""
+    if path.is_symlink() or path.exists():
+        path.unlink()
+    path.write_text(text)
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def git_commit(repo: Path) -> str | None:
+    """Short HEAD, when there is a git to ask. Provenance, never a requirement."""
+    try:
+        r = subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+                           capture_output=True, text=True)
+    except (OSError, FileNotFoundError):
+        return None
+    return r.stdout.strip() or None if r.returncode == 0 else None
+
+
+def calibration_state(repo: Path, crop: str) -> dict:
+    """Best iteration + objective per stage, straight from the calibration ledger.
+
+    Recorded in the run manifest so a finished experiment says which calibration
+    produced the parameters it ran with, instead of only which file it read.
+    """
+    out = {}
+    for stage in ("phenology", "growth"):
+        state = repo / "optimization" / "calibration" / crop / stage / "state.json"
+        if not state.exists():
+            continue
+        try:
+            s = json.loads(state.read_text())
+        except (OSError, ValueError):
+            continue
+        best = repo / "optimization" / "calibration" / crop / stage / "best_crop.xml"
+        out[stage] = {
+            "best_iteration": s.get("best_iteration"),
+            "best_objective": s.get("best_objective"),
+            "iterations": s.get("n_iterations"),
+            "updated": s.get("updated"),
+            "best_crop_sha256": sha256(best) if best.exists() else None,
+        }
+    return out
+
+
 # --- project.csv generation -------------------------------------------------
 def nuts_median_idpl(baseline_csv: Path) -> tuple[dict[str, int], int]:
     """Median planting day-of-year per NUTS-3 district, from the baseline table."""
@@ -428,7 +564,8 @@ def link_or_replace(src: Path, dst: Path) -> None:
     dst.symlink_to(src)
 
 
-def generate(crop: str, climate: Climate, cfg: dict, dry_run: bool = False) -> dict:
+def generate(crop: str, climate: Climate, cfg: dict, dry_run: bool = False,
+             keep_daily: bool | None = None) -> dict:
     repo = resolve_repo_root(cfg)
     crop_dir = repo / "simplace" / crop
     exp_id = climate.id
@@ -437,6 +574,10 @@ def generate(crop: str, climate: Climate, cfg: dict, dry_run: bool = False) -> d
     baseline_csv = crop_dir / "project" / f"project_{crop}.csv"
     co2_src = repo / cfg["paths"]["co2_dir"] / climate.co2_file
     proj_template_path = crop_dir / "project" / "project.proj.xml"
+    solution_src = crop_dir / "solution" / "solution.sol.xml"
+
+    if keep_daily is None:
+        keep_daily = bool(cfg.get("outputs", {}).get("daily", False))
 
     plan = {
         "exp_id": exp_id, "crop": crop, "climate": climate.id,
@@ -444,9 +585,10 @@ def generate(crop: str, climate: Climate, cfg: dict, dry_run: bool = False) -> d
         "grid": climate.grid, "idpl_rule": climate.idpl_rule,
         "co2": climate.co2_file,
         "period": f"{climate.start}-{climate.end}",
+        "daily_output": keep_daily,
     }
 
-    for need in (baseline_csv, co2_src, proj_template_path):
+    for need in (baseline_csv, co2_src, proj_template_path, solution_src):
         if not need.exists():
             raise FileNotFoundError(
                 f"{need}\n"
@@ -477,8 +619,12 @@ def generate(crop: str, climate: Climate, cfg: dict, dry_run: bool = False) -> d
     (run_dir / "data" / "co2").mkdir(parents=True, exist_ok=True)
     (run_dir / "out").mkdir(parents=True, exist_ok=True)
     (run_dir / "solution").mkdir(parents=True, exist_ok=True)
-    link_or_replace(crop_dir / "solution" / "solution.sol.xml",
-                    run_dir / "solution" / "solution.sol.xml")
+    # The solution is rendered, not symlinked: which outputs this experiment
+    # writes is a property of the experiment. data/crop stays a symlink, so the
+    # promoted (calibrated) crop.xml is picked up without regenerating anything.
+    solution_text, dropped_outputs = render_solution(solution_src.read_text(), keep_daily)
+    write_or_replace(run_dir / "solution" / "solution.sol.xml", solution_text)
+    plan["dropped_outputs"] = dropped_outputs
     for sub in SHARED_DATA_SUBDIRS:
         link_or_replace(crop_dir / "data" / sub, run_dir / "data" / sub)
 
@@ -561,6 +707,50 @@ def generate(crop: str, climate: Climate, cfg: dict, dry_run: bool = False) -> d
                                  end_line=int(df["vLocationID"].isin(smoke_locs).sum()))}
     with open(run_dir / "config_smoke.yaml", "w") as fh:
         yaml.safe_dump(smoke_cfg, fh, sort_keys=False)
+
+    # Run manifest. `check_runs.py` verifies a finished experiment against this:
+    # which CO2 record was staged, which crop.xml (i.e. which calibration) the run
+    # read, which outputs the solution was allowed to write, and how many sites
+    # and windows were asked for. Written last, so its presence means the run dir
+    # was assembled completely.
+    manifest = {
+        "exp_id": exp_id,
+        "crop": crop,
+        "climate": {
+            "id": climate.id, "kind": climate.kind,
+            "mount_data": climate.mount_data,
+            "weather_path": climate.weather_path,
+            "coverage": plan["coverage"],
+            "idpl_rule": climate.idpl_rule,
+            "grid": climate.grid,
+        },
+        "co2": {
+            "record": climate.co2_file,
+            "source": str(co2_src),
+            "sha256": sha256(co2_src),
+            "span": plan["co2_span"],
+            "ppm": plan["co2_ppm"],
+        },
+        "project": {
+            "rows": plan["rows"], "points": plan["points"],
+            "period": plan["period"], "window_years": plan["window_years"],
+            "dropped_windows": plan["dropped"],
+        },
+        "outputs": {
+            "daily": keep_daily,
+            "removed": dropped_outputs,
+            "yearly_dir": str(run_dir / "out" / exp_id / "yearly"),
+        },
+        "inputs": {
+            "crop_xml": str(crop_dir / "data" / "crop" / "crop.xml"),
+            "crop_xml_sha256": sha256(crop_dir / "data" / "crop" / "crop.xml"),
+            "solution_source_sha256": sha256(solution_src),
+        },
+        "calibration": calibration_state(repo, crop),
+        "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "git_commit": git_commit(repo),
+    }
+    (run_dir / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     plan["status"] = "generated"
     plan["submit"] = (f"python simplace/runners/simplace_runner_cluster.py "
@@ -671,6 +861,11 @@ def main() -> int:
     ap.add_argument("--climate")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--list-climates", action="store_true")
+    ap.add_argument("--daily", dest="daily", action="store_true", default=None,
+                    help="keep the DAILY outputs in the generated run dirs "
+                         "(default: whatever `outputs.daily` says in the config)")
+    ap.add_argument("--no-daily", dest="daily", action="store_false",
+                    help="drop every frequence=DAILY output — yearly output only")
     args = ap.parse_args()
 
     cfg = yaml.safe_load(Path(args.config).read_text())
@@ -702,12 +897,14 @@ def main() -> int:
     plans = []
     for crop in crops:
         for clim in climates:
-            plan = generate(crop, registry[clim], cfg, args.dry_run)
+            plan = generate(crop, registry[clim], cfg, args.dry_run,
+                            keep_daily=args.daily)
             plans.append(plan)
             extra = ""
             if "rows" in plan:
                 extra = (f"  rows={plan['rows']:,}  points={plan['points']:,}"
-                         f"  {plan['period']}  CO2 {plan['co2_ppm']}")
+                         f"  {plan['period']}  CO2 {plan['co2']} {plan['co2_ppm']}"
+                         f"  outputs={'daily+yearly' if plan['daily_output'] else 'yearly'}")
                 if plan["dropped"]:
                     extra += f"  dropped={plan['dropped']:,}"
             print(f"  [{plan['status']:>9s}] {crop:16s} {clim:22s}{extra}")
