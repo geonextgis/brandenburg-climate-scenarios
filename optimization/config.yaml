@@ -26,10 +26,10 @@ climate:
 
 slurm:
   singularity_image: /beegfs/common/singularity/simplace/simplace_5.0-3897.sif
-  partition: compute
-  walltime: "03:00:00"
-  num_nodes: 40
-  num_tasks_per_node: 16
+  partition: highmem
+  walltime: "48:00:00"
+  num_nodes: 15
+  num_tasks_per_node: 8
   cpus_per_node: 80
   debug: false
   # An iteration normally submits its own SLURM jobs and releases the nodes when

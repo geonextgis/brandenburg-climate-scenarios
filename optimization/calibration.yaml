@@ -208,8 +208,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 500.0
-        high: 1300.0
+        low: 400.0
+        high: 1200.0
         precision: 0
         controls: [flowering_timing]
         meaning: >-
@@ -222,8 +222,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 650.0
-        high: 1300.0
+        low: 600.0
+        high: 1200.0
         precision: 0
         controls: [grain_filling_duration]
         meaning: >-
@@ -261,7 +261,7 @@ targets:
         type: float
         mode: absolute
         low: 5.0
-        high: 20.0
+        high: 15.0
         precision: 1
         controls: [vernalisation_onset, flowering_timing]
         coupled_with: [VERSAT]
@@ -411,7 +411,7 @@ targets:
     stopping:
       max_iterations: 100
       # 1.0 = both components at their `scale` on average.
-      target_objective: 1.0
+      target_objective: 0.1
       # An iteration counts as an improvement only if it beats the best by this,
       # on the combined (dimensionless) objective.
       min_improvement: 0.01
@@ -563,7 +563,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.20]
-        clip: [0.3, 3.60]
+        clip: [0.5, 4.0]
         precision: 3
         affects_lai: true
         controls: [biomass_level, peak_lai]
@@ -666,8 +666,8 @@ targets:
         # (rapeseed) to 0.2 (spring barley), and relative bounds around 0.01 would
         # pin rapeseed to a range far too narrow to test the mechanism at all.
         mode: absolute
-        low: 0.10
-        high: 0.25
+        low: 0.01
+        high: 0.15
         precision: 3
         controls: [translocation, harvest_index]
         meaning: >-
@@ -891,8 +891,8 @@ crop_reference:
     harvest_index: [0.38, 0.55]
     ag_biomass_t_ha: [11.0, 20.0]
   winter_rapeseed:
-    harvest_index: [0.22, 0.38]
-    ag_biomass_t_ha: [9.0, 18.0]
+    harvest_index: [0.25, 0.45]
+    ag_biomass_t_ha: [8.0, 18.0]
   spring_barley:
     harvest_index: [0.38, 0.55]
     ag_biomass_t_ha: [8.0, 15.0]

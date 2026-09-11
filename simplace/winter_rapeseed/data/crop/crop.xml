@@ -8,7 +8,7 @@
 
     <!-- Emergence -->
     <parameter id="TBASEM" description="lower threshold temp. for emergence" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">0.0</parameter>
-    <parameter id="TEFFMX" description="max. eff. temp. for emergence" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">30.0</parameter>
+    <parameter id="TEFFMX" description="max. eff. temp. for emergence" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">27.0</parameter>
     <parameter id="TSUMEM" description="temperature sum from sowing to emergence" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">70.0</parameter>
     
     <!-- Phenology -->
@@ -32,10 +32,10 @@
     <parameter id="PhotoperiodTableFactor" description="correction factor of development rate in dependence of day length [h;-]" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
       <value>0.0</value>
       <value>0.0</value>
-      <value>1.0</value>
-      <value>1.0</value>
+      <value>0.95</value>
+      <value>0.95</value>
     </parameter>
-    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">400</parameter>  <!-- default: 700 -->
+    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">400.0</parameter>  <!-- default: 700 -->
     <parameter id="TSUM2" description="temperature sum from anthesis to maturity" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">1097</parameter>  <!-- default: 900 -->
     <parameter id="TsumIncrementTableMeanTemp" description="Daily increase in temperature sum as function of av. temp. [Cel;Cel d]" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">
       <value>0.00</value>
@@ -54,7 +54,7 @@
 
     <!-- Initial -->
     <parameter id="TDWI" description="Initial total crop dry weight" unit="http://www.wurvoc.org/vocabularies/om-1.8/gram_per_square_metre">24.4</parameter>
-    <parameter id="RGRLAI" description="Maximum Relative increase in LAI" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">0.010</parameter>
+    <parameter id="RGRLAI" description="Maximum Relative increase in LAI" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">0.008</parameter>
     
     <!-- Green area -->
     <parameter id="SLATableDVS" description="DVS for specific leaf area" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
@@ -68,13 +68,13 @@
       <value>2.0</value>
     </parameter>
     <parameter id="SLATableSLA" description="Specific leaf area as function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/square_metre_per_gram">
-      <value>0.016</value> 
-      <value>0.015</value>
-      <value>0.014</value> 
-      <value>0.012</value> 
-      <value>0.012</value> 
-      <value>0.012</value>
-      <value>0.012</value>
+      <value>0.024</value>
+      <value>0.023</value>
+      <value>0.022</value>
+      <value>0.020</value>
+      <value>0.018</value>
+      <value>0.016</value>
+      <value>0.014</value>
       <value>0.012</value>
     </parameter>
     <parameter id="SPA" description="specific pod area" unit="http://www.wurvoc.org/vocabularies/om-1.8/square_metre_per_gram">0</parameter>
@@ -105,10 +105,10 @@
       <value>2.0</value>
     </parameter>
     <parameter id="RUETableRUE" description="Radiation use efficiency for biomass production as function of DVS" unit="...">
-      <value>3.58</value> 
+      <value>4.0</value> 
       <value>3.09</value> 
-      <value>1.90</value> 
-      <value>1.10</value> 
+      <value>2.85</value> 
+      <value>1.75</value> 
     </parameter>
     <parameter id="TMPFTableMeanTemperature" description="Mean daytime temp for reduction factor of RUE" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">
       <value>-1.00</value>
@@ -203,10 +203,10 @@
       <value>0.55</value> 
       <value>0.75</value> 
       <value>0.91</value> 
-      <value>0.63</value> 
-      <value>0.40</value> 
-      <value>0.00</value> 
-      <value>0.00</value>
+      <value>0.58</value> 
+      <value>0.35</value> 
+      <value>0.0</value> 
+      <value>0.0</value>
     </parameter>
     <parameter id="StorageOrgansPartitioningTableDVS" description="DVS for fraction of above-ground dry matter to storage organs" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
       <value>0.0</value>
@@ -219,14 +219,14 @@
       <value>2.0</value>
     </parameter>
     <parameter id="StorageOrgansPartitioningTableFraction" description="Fraction of above-ground dry matter to storage organs as function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
-      <value>0.00</value> 
-      <value>0.00</value> 
-      <value>0.00</value> 
-      <value>0.00</value> 
-      <value>0.30</value> 
-      <value>0.60</value> 
-      <value>1.00</value> 
-      <value>1.00</value>
+      <value>0.0</value> 
+      <value>0.0</value> 
+      <value>0.0</value> 
+      <value>0.0</value> 
+      <value>0.35</value> 
+      <value>0.65</value> 
+      <value>1.0</value> 
+      <value>1.0</value>
     </parameter>
 
     <!-- Death Rates -->
@@ -369,7 +369,7 @@
     <parameter id="KcbMid" description="" unit=" ">1.15</parameter>
     <parameter id="KcbEnd" description="" unit=" ">0.5</parameter>
     <parameter id="CropHt" description="" unit=" ">1.5</parameter>
-    <parameter id="FRTDM" description="" unit="-" datatype="DOUBLE">0.001</parameter>
+    <parameter id="FRTDM" description="" unit="-" datatype="DOUBLE">0.00225</parameter>
 	  <parameter id="RemoveRatioStorageOrgan" description="" unit="kgN per ton" datatype="DOUBLE">33.5</parameter>
 		<parameter id="RemoveRatioStraw" description="" unit="kgN per ton" datatype="DOUBLE">7.0</parameter>
 		<parameter id="FreshratioStorageOrgan" description="" unit="" datatype="DOUBLE">0.91</parameter>
