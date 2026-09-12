@@ -164,8 +164,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 40.0
-        high: 180.0
+        low: 70.0
+        high: 150.0
         precision: 1
         controls: [emergence_timing]
         meaning: >-
@@ -178,7 +178,7 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: -5.0
+        low: -1.0
         high: 5.0
         precision: 2
         controls: [emergence_timing]
@@ -208,8 +208,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 400.0
-        high: 1200.0
+        low: 600.0
+        high: 950.0
         precision: 0
         controls: [flowering_timing]
         meaning: >-
@@ -222,8 +222,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 600.0
-        high: 1200.0
+        low: 750.0
+        high: 1100.0
         precision: 0
         controls: [grain_filling_duration]
         meaning: >-
@@ -426,7 +426,7 @@ targets:
         type: float
         mode: relative
         factor: [0.75, 1.35]
-        clip: [0.0005, 0.015]
+        clip: [0.020, 0.060]
         precision: 3
         controls: [early_growth, rise_rate]
         meaning: >-
@@ -457,7 +457,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.20]
-        clip: [0.015, 0.028]
+        clip: [0.003, 0.022]
         precision: 4
         controls: [peak_lai, curve_shape, senescence_level]
         meaning: >-
@@ -503,7 +503,7 @@ targets:
         type: float
         mode: relative
         factor: [0.7, 1.50]
-        clip: [0.0, 0.08]
+        clip: [0.0, 0.12]
         precision: 4
         controls: [senescence_rate]
         meaning: >-
@@ -583,7 +583,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.20]
-        clip: [0.45, 0.75]
+        clip: [0.35, 0.65]
         precision: 3
         affects_lai: true
         controls: [light_interception, biomass_level]
@@ -666,8 +666,8 @@ targets:
         # (rapeseed) to 0.2 (spring barley), and relative bounds around 0.01 would
         # pin rapeseed to a range far too narrow to test the mechanism at all.
         mode: absolute
-        low: 0.01
-        high: 0.15
+        low: 0.10
+        high: 0.25
         precision: 3
         controls: [translocation, harvest_index]
         meaning: >-
@@ -734,8 +734,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 0.70
-        high: 1.00
+        low: 0.50
+        high: 0.90
         precision: 3
         controls: [grain_filling_dynamics]
         meaning: >-
@@ -747,8 +747,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 1.20
-        high: 1.45
+        low: 1.30
+        high: 1.70
         precision: 3
         controls: [grain_filling_dynamics]
         meaning: >-

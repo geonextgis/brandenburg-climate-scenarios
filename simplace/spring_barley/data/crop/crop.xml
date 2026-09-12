@@ -3,7 +3,7 @@
 
   <!-- ########################################################  Spring Barley  ######################################################## -->
 
-  <crop description=" CROP DATA FILE for use with LINTUL5 (NPK lim.) for sugar beet, August 2011 Based on WOFOST crop data file SUG0601.CAB Regions : Germany, Northern and Central France, Netherlands, Belgium,            Luxembourg, UK, Ireland, Denmark Sowing date : between 1 and 10 April mean date of harvest : between 17 and 27 October">
+  <crop description="CROP DATA FILE for LINTUL5 (NPK limited) — spring barley, Brandenburg/Germany. Spring-sown cereal; crop-specific phenology and growth parameters are defined below.">
     <parameter id="CropName" unit="-">spring_barley</parameter>
     <!-- Emergence -->
     <parameter id="TBASEM" description="lower threshold temp. for emergence" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">0.0</parameter>
@@ -223,25 +223,25 @@
       <value>0.10</value>
     </parameter>
     <parameter id="RDRSHM" description="rel. death rate of leaves due to shading (above LAICR)" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">0.020</parameter>
-    <parameter id="RDRRootsTableDVS" description="DVS for relative death rate of stems" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
+    <parameter id="RDRRootsTableDVS" description="DVS for relative death rate of roots" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
       <value>0.00</value>  
       <value>1.50</value>  
       <value>1.5001</value>
       <value>2.00</value>  
     </parameter>
-    <parameter id="RDRRootsTableRelativeRate" description="Relative death rate of stems as a function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">
+    <parameter id="RDRRootsTableRelativeRate" description="Relative death rate of roots as a function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">
       <value>0.000</value>
       <value>0.000</value>
       <value>0.020</value>
       <value>0.020</value>
     </parameter>
-    <parameter id="RDRStemsTableDVS" description="DVS for relative death rate of roots" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
+    <parameter id="RDRStemsTableDVS" description="DVS for relative death rate of stems" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
       <value>0.00</value>
       <value>1.50</value>
       <value>1.5001</value>
       <value>2.00</value>
     </parameter>
-    <parameter id="RDRStemsTableRelativeRate" description="Relative death rate of roots as a function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">
+    <parameter id="RDRStemsTableRelativeRate" description="Relative death rate of stems as a function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">
       <value>0.000</value>
       <value>0.000</value>
       <value>0.020</value>
