@@ -164,8 +164,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 70.0
-        high: 150.0
+        low: 80.0
+        high: 140.0
         precision: 1
         controls: [emergence_timing]
         meaning: >-
@@ -178,7 +178,7 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: -1.0
+        low: 3.0
         high: 5.0
         precision: 2
         controls: [emergence_timing]
@@ -193,8 +193,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 25.0
-        high: 35.0
+        low: 28.0
+        high: 32.0
         precision: 2
         controls: [thermal_time_ceiling]
         coupled_with: [TBASEM, TSUM1, TSUM2]
@@ -208,7 +208,7 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 600.0
+        low: 700.0
         high: 950.0
         precision: 0
         controls: [flowering_timing]
@@ -222,8 +222,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 750.0
-        high: 1100.0
+        low: 650.0
+        high: 950.0
         precision: 0
         controls: [grain_filling_duration]
         meaning: >-
@@ -256,7 +256,10 @@ targets:
       # response SHAPE is a cultivar property taken from the reference project;
       # VBASE and VERSAT are the two levers worth moving.
       VBASE:
-        enabled: true
+        enabled: false
+        disabled_reason: >-
+          Grain maize is a spring/summer crop in this setup and does not use the
+          vernalisation mechanism; keep this parameter out of the maize space.
         kind: scalar
         type: float
         mode: absolute
@@ -274,7 +277,10 @@ targets:
           winters — the site-years that accumulate vernalising days slowly. Must
           stay below VERSAT.
       VERSAT:
-        enabled: true
+        enabled: false
+        disabled_reason: >-
+          Grain maize is a spring/summer crop in this setup and does not use the
+          vernalisation mechanism; keep this parameter out of the maize space.
         kind: scalar
         type: float
         mode: absolute
@@ -295,7 +301,11 @@ targets:
           spring type.
 
       TsumIncrementTableRate:
-        enabled: true
+        enabled: false
+        disabled_reason: >-
+          Keep the thermal-response shape fixed initially for Brandenburg maize.
+          TSUM1 and TSUM2 are more identifiable from flowering and maturity dates;
+          only re-enable this table if residuals remain structured by temperature.
         kind: table
         type: float
         mode: relative
@@ -410,7 +420,7 @@ targets:
 
     stopping:
       max_iterations: 100
-      # 1.0 = both components at their `scale` on average.
+      # 1.0 corresponds to the yield RMSE scale (0.50 t/ha DM).
       target_objective: 0.1
       # An iteration counts as an improvement only if it beats the best by this,
       # on the combined (dimensionless) objective.
@@ -421,7 +431,9 @@ targets:
     parameters:
       # -- canopy: level and timing of leaf area ---------------------------
       RGRLAI:
-        enabled: true
+        enabled: false
+        disabled_reason: >-
+          Early canopy expansion is not independently observed in this maize calibration; avoid fitting district yield through an unconstrained LAI trajectory.
         kind: scalar
         type: float
         mode: relative
@@ -518,8 +530,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 0.9
-        high: 1.6
+        low: 1.10
+        high: 1.50
         precision: 3
         controls: [senescence_timing]
         meaning: >-
@@ -533,7 +545,7 @@ targets:
         kind: scalar
         type: float
         mode: relative
-        factor: [0.60, 1.50]
+        factor: [0.80, 1.20]
         clip: [0.01, 0.07]
         precision: 4
         controls: [senescence_rate, stress_response]
@@ -547,7 +559,7 @@ targets:
         kind: scalar
         type: float
         mode: relative
-        factor: [0.60, 1.40]
+        factor: [0.80, 1.20]
         clip: [0.02, 0.07]
         precision: 4
         controls: [senescence_rate, stress_response]
@@ -562,7 +574,7 @@ targets:
         kind: table
         type: float
         mode: relative
-        factor: [0.80, 1.20]
+        factor: [0.85, 1.15]
         clip: [0.5, 4.0]
         precision: 3
         affects_lai: true
@@ -573,17 +585,17 @@ targets:
           biomass, and therefore on yield whenever the harvest index is already
           right. Elements at DVS 0-1 set the biomass the crop brings into grain
           filling; later elements set how much is still being fixed during it.
-          Raising RUE also raises leaf weight and hence LAI — in this joint stage
-          that shows up immediately in the LAI component, so use it when BOTH LAI
-          and yield are low, and prefer a partitioning or SLA change when only one
-          of them is.
+          Raising RUE also raises leaf weight and hence LAI. Because this maize
+          calibration scores yield only, use RUE conservatively and check the
+          crop_reference biomass/harvest-index envelope after every accepted move.
       KDIFTableK:
         enabled: true
         kind: table
         type: float
         mode: relative
-        factor: [0.80, 1.20]
-        clip: [0.35, 0.65]
+        # Baseline maize KDIF is 0.60; these relative factors give ~0.50-0.65.
+        factor: [0.8333, 1.0833]
+        clip: [0.50, 0.65]
         precision: 3
         affects_lai: true
         controls: [light_interception, biomass_level]
@@ -597,7 +609,9 @@ targets:
 
       # -- partitioning: where the assimilate goes -------------------------
       LeavesPartitioningTableFraction:
-        enabled: true
+        enabled: false
+        disabled_reason: >-
+          Leaf allocation is not identifiable from yield alone and is coupled to the unobserved maize canopy; keep the reference profile fixed.
         kind: table
         type: float
         mode: relative
@@ -619,7 +633,9 @@ targets:
           reconcile peak LAI with observed biomass. Leaves + stems + storage organs
           must still sum to 1 at every shared DVS node.
       StemsPartitioningTableFraction:
-        enabled: true
+        enabled: false
+        disabled_reason: >-
+          Stem allocation is coupled to leaf and storage-organ partitioning; keep the reference profile fixed in the yield-only maize calibration.
         kind: table
         type: float
         mode: relative
@@ -639,7 +655,9 @@ targets:
           to 1 when leaf or storage-organ allocation is changed. Assimilate moved
           into the grain after anthesis comes from here.
       StorageOrgansPartitioningTableFraction:
-        enabled: true
+        enabled: false
+        disabled_reason: >-
+          The maize storage-organ table is effectively a hard post-anthesis allocation step; relative changes provide little useful freedom and can create compensation.
         kind: table
         type: float
         mode: relative
@@ -662,12 +680,12 @@ targets:
         enabled: true
         kind: scalar
         type: float
-        # Absolute, not relative: the five crops start anywhere from 0.01
-        # (rapeseed) to 0.2 (spring barley), and relative bounds around 0.01 would
-        # pin rapeseed to a range far too narrow to test the mechanism at all.
+        # Maize-specific absolute range. The crop-file starting value (0.05)
+        # remains inside the space while avoiding cereal ranges that are too high
+        # for this grain-maize parameterisation.
         mode: absolute
-        low: 0.10
-        high: 0.25
+        low: 0.01
+        high: 0.10
         precision: 3
         controls: [translocation, harvest_index]
         meaning: >-
@@ -683,8 +701,8 @@ targets:
           `translocation` block of the yield diagnostics first: it scores
           Yield_t_ha and Yield_translocated_t_ha against the same observed district
           yields and says whether the remobilisation term is helping or
-          overshooting. Measured remobilisation in small-grain cereals is roughly
-          10-25% of pre-anthesis assimilate.
+          overshooting. For this Brandenburg grain-maize calibration, keep the
+          admissible remobilisation fraction conservative (0.01-0.10).
 
       # -- nitrogen limitation on grain filling ----------------------------
       NMAXSO:
@@ -693,7 +711,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.20]
-        clip: [0.020, 0.040]
+        clip: [0.014, 0.022]
         precision: 4
         controls: [yield_n_limit]
         meaning: >-
@@ -866,8 +884,8 @@ targets:
         max_elements: 4
         note: >-
           At most 3 parameters (a table counts as one) and at most 4 individual
-          table elements per iteration. With two objectives being watched at once,
-          an iteration that moves more than this cannot be attributed to either.
+          table elements per iteration. Even with a yield-only objective, larger
+          moves make mechanistic attribution difficult.
       - id: bounded_step_size
         type: relative_step
         max_fraction: 0.5
