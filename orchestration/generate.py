@@ -692,6 +692,10 @@ def generate(crop: str, climate: Climate, cfg: dict, dry_run: bool = False,
         "walltime": s["walltime"],
         "start_line": 1,
     }}
+    if s.get("chunk_timeout"):
+        cluster_cfg["cluster"]["chunk_timeout"] = str(s["chunk_timeout"])
+    if s.get("jvm_max_heap"):
+        cluster_cfg["cluster"]["jvm_max_heap"] = str(s["jvm_max_heap"])
     with open(run_dir / "config.yaml", "w") as fh:
         yaml.safe_dump(cluster_cfg, fh, sort_keys=False)
 
@@ -783,6 +787,9 @@ def write_campaign_script(path: Path, listing: Path, repo: Path, cfg: dict,
     cpus_per_node = int(s.get("cpus_per_node", 80))
     cpus_per_task = max(1, cpus_per_node // tasks)
     walltime = str(s.get("campaign_walltime", "24:00:00"))
+    # The runner's own fallback is the config's `walltime` — the per-job limit of
+    # the submit_*.sh path, which a campaign allocation may never have left.
+    min_remaining = str(s.get("campaign_min_remaining", "04:00:00"))
     mem_per_cpu = s.get("mem_per_cpu")
     logdir = repo / "simplace" / "runs_submit" / "logs"
     logdir.mkdir(parents=True, exist_ok=True)
@@ -822,7 +829,7 @@ while read -r crop cfgfile; do
   [ -f "$cfgfile" ] || {{ echo "missing config: $cfgfile" >&2; exit 1; }}
 done < "$LIST"
 
-RUNNER_FLAGS=()
+RUNNER_FLAGS=(--min-remaining {min_remaining})
 [ "${{SIMPLACE_RESUME:-0}}" = "1" ] && RUNNER_FLAGS+=(--skip-completed)
 
 echo "[campaign] job $SLURM_JOB_ID  nodes=$SLURM_JOB_NUM_NODES  start $(date)"
@@ -835,7 +842,7 @@ while read -r crop cfgfile <&3; do
   [ -n "${{crop:-}}" ] || continue
   echo "[campaign] === $cfgfile ($(date +%T)) ==="
   python "simplace/runners/simplace_runner_cluster.py" "$cfgfile" --mode alloc \\
-      ${{RUNNER_FLAGS[@]+"${{RUNNER_FLAGS[@]}}"}}
+      "${{RUNNER_FLAGS[@]}}"
   rc=$?
   case $rc in
     0) done_n=$((done_n + 1)) ;;
@@ -850,7 +857,8 @@ echo "[campaign] finished $done_n/{n_exp} experiment(s), $failed failed, $(date)
 """)
     path.chmod(0o755)
     return {"nodes": nodes, "tasks": tasks, "cpus_per_task": cpus_per_task,
-            "walltime": walltime, "logdir": logdir}
+            "walltime": walltime, "min_remaining": min_remaining,
+            "logdir": logdir}
 
 
 def main() -> int:
@@ -992,6 +1000,7 @@ xargs -P {par} -L1 -a "{listing}" \\
               f"{geom['cpus_per_task']} cpus = {slots} concurrent SIMPLACE steps")
         print(f"  walltime:        {geom['walltime']} for all {len(plans)} "
               f"experiment(s), run sequentially inside the one allocation")
+        print(f"  per experiment:  needs {geom['min_remaining']} left to start")
         print(f"  run it with:     sbatch {campaign}")
         print(f"  resume:          sbatch --export=ALL,SIMPLACE_RESUME=1 {campaign}")
         print(f"  job log:         {geom['logdir']}/{campaign.stem}-<jobid>.out")

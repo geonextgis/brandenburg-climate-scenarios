@@ -357,6 +357,11 @@ def build_run_dir(spec: RunSpec, rebuild: bool = False) -> dict:
         # subset run of minutes, so `walltime` (sized for a full submission)
         # would refuse to start for hours of a perfectly usable allocation.
         "min_remaining": s.get("min_remaining", "00:30:00"),
+        # Also held-allocation only. The container's JVM now and then segfaults
+        # or spins in its JIT compiler; neither says anything about the chunk,
+        # and one lost chunk would otherwise cost the whole iteration.
+        "chunk_retries": s.get("chunk_retries", 2),
+        "chunk_timeout": s.get("chunk_timeout", "00:08:00"),
         "start_line": 1,
     }}, sort_keys=False))
 

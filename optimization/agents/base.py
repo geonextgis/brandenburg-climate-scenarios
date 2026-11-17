@@ -572,9 +572,12 @@ class CalibrationAgent:
         status = self.status()
         history = self.history()
 
-        if status.get("next_iteration", 0) == 0:
-            self.log(f"\n  iteration 0 — baseline (nothing changed), establishing the "
-                     f"objective to beat")
+        # No completed iteration means no objective to beat — which is also the
+        # case after a baseline whose run failed. A proposal made then would be a
+        # guess with nothing to be compared against, so the baseline comes first.
+        if status.get("next_iteration", 0) == 0 or not status.get("n_completed"):
+            self.log(f"\n  iteration {status.get('next_iteration', 0)} — baseline "
+                     f"(nothing changed), establishing the objective to beat")
             return self.execute(Decision(
                 reason="baseline: the current parameter set, unchanged",
                 hypothesis="", expected_effect="",
@@ -632,6 +635,15 @@ class CalibrationAgent:
                 break
             if result.get("stopped_by_agent"):
                 stopped = f"the agent stopped: {result.get('reason')}"
+                break
+            if result.get("status") == "failed":
+                # The run itself broke (SIMPLACE, the cluster, the scoring). The
+                # ledger has the error and crop.xml is rolled back; asking the
+                # model for another change would spend cluster time on evidence
+                # that does not exist.
+                stopped = (f"iteration {result.get('iteration')} failed — see its "
+                           f"ledger entry; nothing is proposed on top of a failed run")
+                self.log(f"\n  {stopped}")
                 break
             completed.append(result)
             if result.get("stop"):

@@ -1,0 +1,11 @@
+{
+  "source": "ISRIC SoilGrids v2.0 (Poggio et al. 2021, SOIL 7:217-240), CC-BY 4.0",
+  "url_template": "https://files.isric.org/soilgrids/latest/data/{prop}/{prop}_{depth}_mean.vrt",
+  "bbox_lonlat": [
+    11.1,
+    51.25,
+    14.9,
+    53.65
+  ],
+  "statistic": "mean"
+}

@@ -1531,6 +1531,52 @@ def _():
     assert agent.backend.calls == [], "the baseline must not consult the model"
 
 
+@test("a failed baseline is re-run, not proposed on top of")
+def _():
+    agent, executed = _stub_agent(['{"parameter_changes": {"RGRLAI": 0.02}}'])
+    agent.status().update(n_completed=0, next_iteration=1, best=None)
+    agent.iterate()
+    assert executed["decision"].parameters == {}, \
+        "with no completed iteration the next run must be the unchanged baseline"
+    assert agent.backend.calls == [], "the model must not be asked without a baseline"
+
+
+@test("a failed iteration ends the session instead of feeding the next proposal")
+def _():
+    agent, _ = _stub_agent(['{"parameter_changes": {"RGRLAI": 0.02}, "reason": "r"}'] * 3)
+    runs = []
+    agent.execute = lambda decision: runs.append(decision) or {
+        "status": "failed", "iteration": 1}
+    summary = agent.loop(max_iterations=3)
+    assert len(runs) == 1, "nothing may run after an iteration has failed"
+    assert "iteration 1 failed" in summary["stopped_because"], summary
+    assert summary["iterations_this_session"] == 0
+
+
+@test("a crashed chunk is retried, and a hung one is cancelled")
+def _():
+    import tempfile
+    import time
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "simplace" / "runners"))
+    import simplace_runner_cluster as runner
+
+    with tempfile.TemporaryDirectory() as tmp:
+        marker, log = Path(tmp) / "seen", str(Path(tmp) / "step.out")
+        flaky = ["sh", "-c", f"test -e {marker} && exit 0; touch {marker}; exit 134"]
+        marker.unlink(missing_ok=True)
+        assert runner.run_chunk_with_retries(flaky, log, retries=0) == (134, 1)
+        marker.unlink()
+        assert runner.run_chunk_with_retries(flaky, log, retries=2) == (0, 2)
+        assert "attempt 2/3 (previous rc=134)" in Path(log).read_text(), \
+            "the log must keep the failed attempt"
+
+        started = time.time()
+        rc, attempts = runner.run_chunk_with_retries(["sleep", "60"], log, retries=1,
+                                                     timeout=1)
+        assert (rc, attempts) == (runner.RC_TIMEOUT, 2)
+        assert time.time() - started < 20, "a hung chunk must not block the run"
+
+
 @test("drifted frozen parameters stop the loop before anything runs")
 def _():
     import agents as ag

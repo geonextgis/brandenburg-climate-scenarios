@@ -164,8 +164,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 80.0
-        high: 140.0
+        low: 120.0
+        high: 280.0
         precision: 1
         controls: [emergence_timing]
         meaning: >-
@@ -178,7 +178,7 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 3.0
+        low: 1.0
         high: 5.0
         precision: 2
         controls: [emergence_timing]
@@ -193,8 +193,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 28.0
-        high: 32.0
+        low: 15.0
+        high: 22.0
         precision: 2
         controls: [thermal_time_ceiling]
         coupled_with: [TBASEM, TSUM1, TSUM2]
@@ -208,8 +208,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 700.0
-        high: 950.0
+        low: 450.0
+        high: 800.0
         precision: 0
         controls: [flowering_timing]
         meaning: >-
@@ -222,8 +222,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 650.0
-        high: 950.0
+        low: 1000.0
+        high: 1700.0
         precision: 0
         controls: [grain_filling_duration]
         meaning: >-
@@ -438,7 +438,7 @@ targets:
         type: float
         mode: relative
         factor: [0.75, 1.35]
-        clip: [0.020, 0.060]
+        clip: [0.030, 0.060]
         precision: 3
         controls: [early_growth, rise_rate]
         meaning: >-
@@ -454,7 +454,7 @@ targets:
         type: float
         mode: relative
         factor: [0.75, 1.30]
-        clip: [5.0, 30.0]
+        clip: [5.0, 10.0]
         precision: 2
         controls: [emergence_level]
         meaning: >-
@@ -469,7 +469,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.20]
-        clip: [0.003, 0.022]
+        clip: [0.015, 0.032]
         precision: 4
         controls: [peak_lai, curve_shape, senescence_level]
         meaning: >-
@@ -488,7 +488,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.25]
-        clip: [3.0, 5.5]
+        clip: [3.2, 5.0]
         precision: 3
         controls: [peak_lai, peak_duration]
         meaning: >-
@@ -502,7 +502,7 @@ targets:
         type: float
         mode: relative
         factor: [0.70, 1.50]
-        clip: [0.015, 0.06]
+        clip: [0.020, 0.045]
         precision: 4
         controls: [peak_lai, peak_duration]
         meaning: >-
@@ -530,8 +530,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 1.10
-        high: 1.50
+        low: 1.30
+        high: 1.70
         precision: 3
         controls: [senescence_timing]
         meaning: >-
@@ -575,7 +575,7 @@ targets:
         type: float
         mode: relative
         factor: [0.85, 1.15]
-        clip: [0.5, 4.0]
+        clip: [2.35, 3.25]
         precision: 3
         affects_lai: true
         controls: [biomass_level, peak_lai]
@@ -595,7 +595,7 @@ targets:
         mode: relative
         # Baseline maize KDIF is 0.60; these relative factors give ~0.50-0.65.
         factor: [0.8333, 1.0833]
-        clip: [0.50, 0.65]
+        clip: [0.80, 1.05]
         precision: 3
         affects_lai: true
         controls: [light_interception, biomass_level]
@@ -684,8 +684,8 @@ targets:
         # remains inside the space while avoiding cereal ranges that are too high
         # for this grain-maize parameterisation.
         mode: absolute
-        low: 0.01
-        high: 0.10
+        low: 0.20
+        high: 0.36
         precision: 3
         controls: [translocation, harvest_index]
         meaning: >-
@@ -711,7 +711,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.20]
-        clip: [0.014, 0.022]
+        clip: [0.011, 0.0165]
         precision: 4
         controls: [yield_n_limit]
         meaning: >-
@@ -725,7 +725,7 @@ targets:
         type: float
         mode: relative
         factor: [0.70, 1.50]
-        clip: [5.0, 20.0]
+        clip: [7.0, 15.0]
         precision: 2
         controls: [grain_filling_dynamics]
         meaning: >-
@@ -739,7 +739,7 @@ targets:
         type: float
         mode: absolute
         low: 0.9
-        high: 1.4
+        high: 1.3
         precision: 3
         controls: [stress_response]
         meaning: >-
@@ -752,8 +752,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 0.50
-        high: 0.90
+        low: 0.65
+        high: 0.95
         precision: 3
         controls: [grain_filling_dynamics]
         meaning: >-
@@ -765,8 +765,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 1.30
-        high: 1.70
+        low: 1.40
+        high: 1.75
         precision: 3
         controls: [grain_filling_dynamics]
         meaning: >-

@@ -296,6 +296,7 @@ data/raw/*.gpkg
 data/raw/DE_DWD_UBN_Crop.csv
 data/interim/
 data/processed/
+reports/*/data/
 
 # Derived model inputs. Regenerated, so not carried in Git:
 #   data_observed/phenology_<crop>.csv  <- notebooks/01_preprocessing/03_...

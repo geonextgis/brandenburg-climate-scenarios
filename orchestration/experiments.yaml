@@ -108,9 +108,9 @@ co2:
 # SLURM / Singularity defaults for the generated `cluster:` blocks.
 slurm:
   singularity_image: /beegfs/common/singularity/simplace/simplace_5.0-3897.sif
-  partition: highmem
+  partition: compute
   walltime: "48:00:00"
-  num_nodes: 10 # per experiment; sized so many experiments can run concurrently
+  num_nodes: 30 # per experiment; sized so many experiments can run concurrently
   num_tasks_per_node: 8
   cpus_per_node: 80 # cores per compute node; sets cpus-per-task = this / tasks
   # Size of the partition. Each runner blocks until its own jobs finish, so the
@@ -124,10 +124,30 @@ slurm:
   # runs inside it as srun job steps (simplace_runner_cluster.py --mode alloc),
   # so nodes are never handed back and re-queued between experiments — which on
   # a busy partition is where most of the wall-clock goes.
-  campaign_nodes: 50 # held for the whole campaign; <= cluster_nodes
-  campaign_walltime: "24:00:00"
+  campaign_nodes: 30 # held for the whole campaign; <= cluster_nodes
+  campaign_walltime: "72:00:00"
+  # Walltime the campaign must still have before it starts the NEXT experiment,
+  # passed to the runner as --min-remaining. It is one experiment's worst case,
+  # not `walltime` above (the per-job limit of the submit_*.sh path): left to
+  # inherit that, a campaign shorter than 48 h refuses its first experiment and
+  # exits 0 having run nothing. Keep campaign_walltime >= experiments x this.
+  campaign_min_remaining: "04:00:00"
+  # alloc mode only: a chunk still running after this is cancelled and re-run
+  # (see chunk_retries in the runner). The JVM occasionally spins forever at
+  # start-up instead of crashing, and one such step holds the whole campaign
+  # until the walltime. A healthy chunk at 240 slots takes ~20 min (baseline) to
+  # ~45 min (future), so this is about twice the slowest.
+  chunk_timeout: "01:30:00"
   # Memory per CPU for the allocation. Must be set: without it the first srun
   # step on a node claims the node's whole memory and the other
   # num_tasks_per_node steps stall behind it inside our own allocation.
   # compute nodes have 95000M / 80 cores.
   mem_per_cpu: 1100M
+  # Java heap cap per SIMPLACE process (-Xmx). The image's launcher hard-codes
+  # -Xmx30g and the JVM cannot see the step's cgroup, so without this each of the
+  # num_tasks_per_node JVMs on a node grows towards 30 GB inside a step that owns
+  # cpus-per-task x mem_per_cpu (11 GB here). The node runs out of memory and the
+  # JVMs segfault on failed native allocations, hang, or are OOM-killed: 105 of
+  # 240 potato DWD chunks on 2026-10-12. Keep it at ~75 % of the step's memory —
+  # the JVM needs the rest for code cache, GC structures and thread stacks.
+  jvm_max_heap: "8g"

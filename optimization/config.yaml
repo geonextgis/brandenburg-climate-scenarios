@@ -41,6 +41,16 @@ slurm:
   # Only read when attached to a held allocation: refuse to start an iteration
   # with less than this left, so a run cannot be cut in half by the walltime.
   min_remaining: "00:30:00"
+  # Also held-allocation only. A chunk that exits non-zero is re-run this many
+  # times, and one still running after `chunk_timeout` is cancelled and counted
+  # as a failure (so it is retried too). An iteration's chunk takes ~3 minutes,
+  # and a hung one never recovers, so the timeout is kept short.
+  # The JVM in the container segfaults or hangs in its JIT compiler on a
+  # fraction of potato chunks — 1 to 73 of 240 per run — and the same line
+  # range passes on another attempt; without this one such chunk fails the
+  # iteration, and a hung one blocks the session until the walltime.
+  chunk_retries: 2
+  chunk_timeout: "00:08:00"
 
 # Which input tables get staged into a calibration run dir under the canonical
 # names the solution reads (data/soil/soil.csv, data/management/location.csv,

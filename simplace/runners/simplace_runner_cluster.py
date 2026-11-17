@@ -27,6 +27,13 @@ Two execution modes, selected by ``--mode`` (default ``auto``):
     when a held allocation is configured and still running; ``sbatch``
     otherwise. Keeps the login-node entrypoint unchanged when no nodes are held.
 
+In ``alloc`` mode a chunk that exits non-zero is re-run in place, up to
+``cluster.chunk_retries`` times (default 2), and a chunk that outlives
+``cluster.chunk_timeout`` is cancelled and counted as a failure. Both exist for
+the same reason: the JVM in the container occasionally segfaults or spins inside
+its own JIT compiler, which says nothing about the chunk — the same line range
+passes on the next attempt.
+
 Exit codes: ``0`` success, ``1`` at least one chunk failed, ``3`` not enough
 walltime left in the allocation to start this experiment (the campaign script
 stops cleanly on this so the run can be resumed).
@@ -51,6 +58,13 @@ import yaml
 # real failure so the campaign driver can stop cleanly instead of reporting an
 # error for every remaining experiment.
 EXIT_OUT_OF_TIME = 3
+
+# How often a chunk that exited non-zero is re-run before it counts as failed.
+# Overridable via `cluster.chunk_retries` / `--chunk-retries`.
+DEFAULT_CHUNK_RETRIES = 2
+
+# What a chunk cancelled for exceeding `chunk_timeout` reports, as timeout(1) does.
+RC_TIMEOUT = 124
 
 # Cores per compute node, used only to derive cpus-per-task when the
 # allocation does not state it. Overridable via `cluster.cpus_per_node`.
@@ -155,8 +169,15 @@ def singularity_command(config: dict, paths: dict, first: int, last: int):
     ])
     execdir = "/simplace"
     simplace_workdir = "/simplace/SIMPLACE_WORK"
+    # The image's launcher hard-codes -Xmx30g and the JVM cannot see the step's
+    # cgroup, so every JVM on a node grows its heap towards 30 GB whatever the
+    # step was given. With 8 steps per node that exhausts the node: the JVMs die
+    # of SIGSEGV on failed native allocations, spin, or are OOM-killed. A later
+    # -Xmx wins, and the launcher appends INSTALL4J_ADD_VM_PARAMS after its own.
+    heap = config.get('jvm_max_heap')
+    env = ["--env", f"INSTALL4J_ADD_VM_PARAMS=-Xmx{heap}"] if heap else []
     cmd = [
-        "singularity", "run", "-B", bind_paths, config['singularity_image'],
+        "singularity", "run", *env, "-B", bind_paths, config['singularity_image'],
         f"{execdir}/simplace", "run",
         f"-s={simplace_workdir}/{config['solution']}",
         f"-p={simplace_workdir}/{config['project']}",
@@ -399,9 +420,74 @@ def remaining_seconds(job_id: str | None = None):
         return None
 
 
+def cancel_step(alloc_id: str | None, step_name: str) -> None:
+    """scancel the job step called ``step_name`` in ``alloc_id``, if it is there.
+
+    Signalling the srun client is not enough for a step that has to go: srun
+    forwards SIGTERM to the task, and a JVM spinning in native code ignores it.
+    """
+    if not alloc_id:
+        return
+    r = subprocess.run(["squeue", "-s", "-h", "-j", str(alloc_id), "-o", "%i %j"],
+                       capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        step_id, _, name = line.strip().partition(" ")
+        if name.strip() == step_name:
+            subprocess.run(["scancel", step_id], capture_output=True)
+
+
+def run_step(cmd: list, fh, timeout: float | None = None,
+             alloc_id: str | None = None, step_name: str | None = None) -> int:
+    """Run one srun step to completion; cancel it and return RC_TIMEOUT if it hangs."""
+    proc = subprocess.Popen(cmd, stdout=fh, stderr=subprocess.STDOUT)
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        pass
+    fh.write(f"\n[runner] no exit after {timeout:.0f}s — cancelling the step\n")
+    fh.flush()
+    if step_name:
+        cancel_step(alloc_id, step_name)
+    proc.terminate()
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+    return RC_TIMEOUT
+
+
+def run_chunk_with_retries(cmd: list, log_path: str, retries: int = 0,
+                           timeout: float | None = None, alloc_id: str | None = None,
+                           step_name: str | None = None, label: str = ""):
+    """Run a chunk until it exits 0 or ``retries`` re-runs are spent.
+
+    Returns ``(rc, attempts)``. Every attempt covers the same line range, so a
+    re-run rewrites the per-location files the failed attempt left behind. The
+    log keeps all attempts — the first one's crash report is the evidence.
+    """
+    rc, attempts = 1, retries + 1
+    for attempt in range(1, attempts + 1):
+        with open(log_path, "w" if attempt == 1 else "a") as fh:
+            if attempt > 1:
+                fh.write(f"\n\n===== attempt {attempt}/{attempts} "
+                         f"(previous rc={rc}) =====\n")
+            fh.write(" ".join(cmd) + "\n\n")
+            fh.flush()
+            rc = run_step(cmd, fh, timeout, alloc_id, step_name)
+        if rc == 0:
+            return rc, attempt
+        if attempt < attempts:
+            why = "timed out" if rc == RC_TIMEOUT else f"rc={rc}"
+            print(f"{label}{why} on attempt {attempt}/{attempts}, retrying  {log_path}",
+                  flush=True)
+    return rc, attempts
+
+
 def run_in_allocation(config_path: str, min_remaining: str | None = None,
                       chunks_per_slot: int = 1, max_steps: int | None = None,
-                      job_id: str | None = None) -> int:
+                      job_id: str | None = None, chunk_retries: int | None = None,
+                      chunk_timeout: str | None = None) -> int:
     """Run one experiment as srun steps in an allocation that is already held.
 
     The allocation is not released here — that is the whole point. Work is cut
@@ -443,6 +529,11 @@ def run_in_allocation(config_path: str, min_remaining: str | None = None,
         print(f"[{exp}] nothing to run (empty line selection).", flush=True)
         return 1
 
+    retries = int(chunk_retries if chunk_retries is not None
+                  else config.get('chunk_retries', DEFAULT_CHUNK_RETRIES))
+    timeout = chunk_timeout or config.get('chunk_timeout')
+    timeout = parse_walltime(timeout) if timeout else None
+
     attached = " (attached)" if job_id else ""
     print(f"[{exp}] {len(ranges)} chunk(s) over {slots} slot(s) "
           f"({nodes} node(s) x {tasks_per_node} task(s), {cpus_per_task} cpu(s)/task) "
@@ -452,25 +543,26 @@ def run_in_allocation(config_path: str, min_remaining: str | None = None,
 
     def run_chunk(rng):
         first, last = rng
+        name = f"SIM_{exp}_{first}_{last}"
         cmd = ["srun", "--exclusive", "--exact",
                "-N1", "-n1", f"-c{cpus_per_task}",
-               f"--job-name=SIM_{exp}_{first}_{last}",
+               f"--job-name={name}",
                *([f"--jobid={job_id}"] if job_id else []),
                *singularity_command(config, paths, first, last)]
         log_path = os.path.join(paths['log'], f"step_{exp}_{first}_{last}.out")
-        with open(log_path, "w") as fh:
-            fh.write(" ".join(cmd) + "\n\n")
-            fh.flush()
-            rc = subprocess.run(cmd, stdout=fh, stderr=subprocess.STDOUT).returncode
-        return rng, rc, log_path
+        rc, attempts = run_chunk_with_retries(
+            cmd, log_path, retries, timeout, alloc_id, name,
+            label=f"[{exp}] chunk {first}-{last} ")
+        return rng, rc, log_path, attempts
 
-    failures, done = [], 0
+    failures, retried, done = [], 0, 0
     step = max(1, len(ranges) // 10)
     with ThreadPoolExecutor(max_workers=slots) as pool:
         futures = [pool.submit(run_chunk, rng) for rng in ranges]
         for fut in as_completed(futures):
-            rng, rc, log_path = fut.result()
+            rng, rc, log_path, attempts = fut.result()
             done += 1
+            retried += attempts > 1
             if rc != 0:
                 failures.append((rng, rc, log_path))
                 print(f"[{exp}] chunk {rng[0]}-{rng[1]} FAILED rc={rc}  {log_path}",
@@ -482,10 +574,12 @@ def run_in_allocation(config_path: str, min_remaining: str | None = None,
     elapsed = time.time() - started
     if failures:
         print(f"[{exp}] FAILED — {len(failures)}/{len(ranges)} chunk(s) "
-              f"after {elapsed:.0f}s", flush=True)
+              f"after {elapsed:.0f}s ({retries} retr{'y' if retries == 1 else 'ies'} "
+              f"each)", flush=True)
         return 1
 
-    print(f"[{exp}] completed {len(ranges)} chunk(s) in {elapsed:.0f}s", flush=True)
+    print(f"[{exp}] completed {len(ranges)} chunk(s) in {elapsed:.0f}s"
+          + (f" — {retried} needed a retry" if retried else ""), flush=True)
     completion_marker(config).write_text(
         f"{time.strftime('%Y-%m-%d %H:%M:%S')} mode=alloc "
         f"job={os.environ.get('SLURM_JOB_ID')} chunks={len(ranges)} "
@@ -512,6 +606,13 @@ def main() -> int:
     ap.add_argument("--max-steps", type=int,
                     help="alloc mode: cap concurrent srun steps (default: one "
                          "per allocation slot, nodes x tasks-per-node)")
+    ap.add_argument("--chunk-retries", type=int,
+                    help="alloc mode: re-run a chunk that exited non-zero this "
+                         f"many times (default: the config's chunk_retries, "
+                         f"else {DEFAULT_CHUNK_RETRIES})")
+    ap.add_argument("--chunk-timeout", metavar="HH:MM:SS",
+                    help="alloc mode: cancel a chunk still running after this "
+                         "long (default: the config's chunk_timeout, else none)")
     ap.add_argument("--skip-completed", action="store_true",
                     help="exit 0 immediately if this experiment already has a "
                          "completion marker (resuming an interrupted campaign)")
@@ -546,7 +647,8 @@ def main() -> int:
 
     if mode == "alloc":
         return run_in_allocation(args.config, args.min_remaining,
-                                 args.chunks_per_slot, args.max_steps, held)
+                                 args.chunks_per_slot, args.max_steps, held,
+                                 args.chunk_retries, args.chunk_timeout)
     return run_simplace(args.config)
 
 
