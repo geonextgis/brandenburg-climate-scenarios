@@ -96,10 +96,10 @@
       <value>2</value>
     </parameter>
     <parameter id="RUETableRUE" description="Radiation use efficiency for biomass production as function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/gram_per_megajoule">
-    <value>2.45</value>
-    <value>2.232</value>
-    <value>2.16</value>
-    <value>1.296</value>
+    <value>4.0</value>
+    <value>2.35</value>
+    <value>2.24</value>
+    <value>1.95</value>
     </parameter>
     <parameter id="TMPFTableMeanTemperature" description="Mean daytime temp for reduction factor of RUE" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">
       <value>-1</value>
@@ -207,7 +207,7 @@
     </parameter>
 
     <!-- Death Rates -->
-    <parameter id="RDRL" description="max. rel. death rate of leaves due to water stress" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">0.07</parameter>
+    <parameter id="RDRL" description="max. rel. death rate of leaves due to water stress" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">0.045</parameter>
     <parameter id="RDRLeavesTableMeanTemp" description="Daily mean temperature for relative death rate of leaves" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">
       <value>-10.</value>
       <value>10.</value> 
@@ -262,7 +262,7 @@
     <parameter id="DVSDLT" description="development stage above which death of leaves starts in dependence of mean daily temperature" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">1.0</parameter>
 
     <!-- Nutrient (N-P-K) use -->
-    <parameter id="RDRNS" description="max. relative death rate of leaves due to nutrient (N-P-K) stress" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">0.05</parameter>
+    <parameter id="RDRNS" description="max. relative death rate of leaves due to nutrient (N-P-K) stress" unit="http://www.wurvoc.org/vocabularies/om-1.8/reciprocal_day">0.034</parameter>
     <parameter id="DVSNLT" description=" development stage above which no crop N-P-K uptake does occur" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">1.5</parameter>
     <parameter id="DVSNT" description=" development stage above which N-P-K translocation to storage organs does occur " unit="http://www.wurvoc.org/vocabularies/om-1.8/one">0.6</parameter>
     <parameter id="FNTRT" description=" N-P-K translocations from roots as a fraction of resp. total N-P-K amounts translocated from leaves and stems" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">0.15</parameter>
@@ -276,7 +276,7 @@
     <parameter id="LRKR" description=" maximum K concentration in roots as fraction of maximum K concentration in leaves" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">0.50</parameter>
     <parameter id="LSKR" description=" maximum K concentration in stems as fraction of maximum K concentration in leaves" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">0.50</parameter>
     <parameter id="NLAI" description=" coefficient for the reduction due to nutrient (N-P-K) stress of the LAI increase (during juvenile phase)" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">1.0</parameter>
-    <parameter id="NLUE" description=" coefficient for the reduction of RUE due to nutrient (N-P-K) stress" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">1.4</parameter>
+    <parameter id="NLUE" description=" coefficient for the reduction of RUE due to nutrient (N-P-K) stress" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">0.9</parameter>
     <parameter id="NMAXSO" description=" maximum N concentration (= 1.6*min. N conc.) in storage organs" unit="http://www.wurvoc.org/vocabularies/om-1.8/gram_per_gram">0.022</parameter>
     <parameter id="PMAXSO" description=" maximum P concentration (= 1.6*min. P conc.) in storage organs" unit="http://www.wurvoc.org/vocabularies/om-1.8/gram_per_gram">0.00256</parameter>
     <parameter id="KMAXSO" description=" maximum K concentration (= 1.6*min. K conc.) in storage organs" unit="http://www.wurvoc.org/vocabularies/om-1.8/gram_per_gram">0.00480</parameter>
@@ -347,7 +347,7 @@
     <parameter id="KcbMid" description="" unit=" ">1.15</parameter>
     <parameter id="KcbEnd" description="" unit=" ">0.5</parameter>
     <parameter id="CropHt" description="" unit=" ">1.5</parameter>
-    <parameter id="FRTDM" description="" unit="-" datatype="DOUBLE">0.2</parameter>
+    <parameter id="FRTDM" description="" unit="-" datatype="DOUBLE">0.12</parameter>
     <parameter id="RemoveRatioStorageOrgan" description="" unit="kgN per ton" datatype="DOUBLE">16.5</parameter>
     <parameter id="RemoveRatioStraw" description="" unit="kgN per ton" datatype="DOUBLE">5.0</parameter>
     <parameter id="FreshratioStorageOrgan" description="" unit="" datatype="DOUBLE">0.86</parameter>
