@@ -13,7 +13,7 @@
     
     <!-- Phenology -->
     <parameter id="IDSL" description="pre-anthesis development depends on temperature (=0), temperature + day length (=1), or temperature + day length + vernalisation (=2)" unit="-">2</parameter>
-    <parameter id="VERSAT" description="saturated vernalisation requirement" unit="http://www.wurvoc.org/vocabularies/om-1.8/day">24.0</parameter>
+    <parameter id="VERSAT" description="saturated vernalisation requirement" unit="http://www.wurvoc.org/vocabularies/om-1.8/day">30.0</parameter>
     <parameter id="VBASE" description="base vernalisation requirement" unit="http://www.wurvoc.org/vocabularies/om-1.8/day">7.0</parameter>
     <parameter id="VERNRT" description="vernalising day rate as interleaved (mean temperature [C], rate [-]) pairs" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
       <value>-10.0</value>  <value>0.0</value>
@@ -35,7 +35,7 @@
       <value>0.95</value>
       <value>0.95</value>
     </parameter>
-    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">400.0</parameter>  <!-- default: 700 -->
+    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">360.0</parameter>  <!-- default: 700 -->
     <parameter id="TSUM2" description="temperature sum from anthesis to maturity" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">1097</parameter>  <!-- default: 900 -->
     <parameter id="TsumIncrementTableMeanTemp" description="Daily increase in temperature sum as function of av. temp. [Cel;Cel d]" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">
       <value>0.00</value>

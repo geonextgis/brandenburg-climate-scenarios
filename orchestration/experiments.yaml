@@ -110,7 +110,7 @@ slurm:
   singularity_image: /beegfs/common/singularity/simplace/simplace_5.0-3897.sif
   partition: compute
   walltime: "48:00:00"
-  num_nodes: 30 # per experiment; sized so many experiments can run concurrently
+  num_nodes: 50 # per experiment; sized so many experiments can run concurrently
   num_tasks_per_node: 8
   cpus_per_node: 80 # cores per compute node; sets cpus-per-task = this / tasks
   # Size of the partition. Each runner blocks until its own jobs finish, so the
@@ -124,7 +124,7 @@ slurm:
   # runs inside it as srun job steps (simplace_runner_cluster.py --mode alloc),
   # so nodes are never handed back and re-queued between experiments — which on
   # a busy partition is where most of the wall-clock goes.
-  campaign_nodes: 30 # held for the whole campaign; <= cluster_nodes
+  campaign_nodes: 50 # held for the whole campaign; <= cluster_nodes
   campaign_walltime: "72:00:00"
   # Walltime the campaign must still have before it starts the NEXT experiment,
   # passed to the runner as --min-remaining. It is one experiment's worst case,

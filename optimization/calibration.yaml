@@ -164,8 +164,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 120.0
-        high: 280.0
+        low: 50.0
+        high: 220.0
         precision: 1
         controls: [emergence_timing]
         meaning: >-
@@ -178,8 +178,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 1.0
-        high: 5.0
+        low: 0.0
+        high: 4.0
         precision: 2
         controls: [emergence_timing]
         coupled_with: [TSUMEM, TEFFMX]
@@ -193,8 +193,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 15.0
-        high: 22.0
+        low: 22.0
+        high: 32.0
         precision: 2
         controls: [thermal_time_ceiling]
         coupled_with: [TBASEM, TSUM1, TSUM2]
@@ -208,8 +208,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 450.0
-        high: 800.0
+        low: 650.0
+        high: 1250.0
         precision: 0
         controls: [flowering_timing]
         meaning: >-
@@ -222,8 +222,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 1000.0
-        high: 1700.0
+        low: 500.0
+        high: 1200.0
         precision: 0
         controls: [grain_filling_duration]
         meaning: >-
@@ -256,7 +256,7 @@ targets:
       # response SHAPE is a cultivar property taken from the reference project;
       # VBASE and VERSAT are the two levers worth moving.
       VBASE:
-        enabled: false
+        enabled: true
         disabled_reason: >-
           Grain maize is a spring/summer crop in this setup and does not use the
           vernalisation mechanism; keep this parameter out of the maize space.
@@ -277,7 +277,7 @@ targets:
           winters — the site-years that accumulate vernalising days slowly. Must
           stay below VERSAT.
       VERSAT:
-        enabled: false
+        enabled: true
         disabled_reason: >-
           Grain maize is a spring/summer crop in this setup and does not use the
           vernalisation mechanism; keep this parameter out of the maize space.
@@ -438,7 +438,7 @@ targets:
         type: float
         mode: relative
         factor: [0.75, 1.35]
-        clip: [0.030, 0.060]
+        clip: [0.005, 0.013]
         precision: 3
         controls: [early_growth, rise_rate]
         meaning: >-
@@ -454,7 +454,7 @@ targets:
         type: float
         mode: relative
         factor: [0.75, 1.30]
-        clip: [5.0, 10.0]
+        clip: [5.0, 15.0]
         precision: 2
         controls: [emergence_level]
         meaning: >-
@@ -464,7 +464,7 @@ targets:
           observation onwards rather than diverging gradually. Prefer RGRLAI when
           the *slope* is wrong and TDWI when the *intercept* is wrong.
       SLATableSLA:
-        enabled: true
+        enabled: false
         kind: table
         type: float
         mode: relative
@@ -488,7 +488,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.25]
-        clip: [3.2, 5.0]
+        clip: [3.0, 7.0]
         precision: 3
         controls: [peak_lai, peak_duration]
         meaning: >-
@@ -502,7 +502,7 @@ targets:
         type: float
         mode: relative
         factor: [0.70, 1.50]
-        clip: [0.020, 0.045]
+        clip: [0.015, 0.045]
         precision: 4
         controls: [peak_lai, peak_duration]
         meaning: >-
@@ -530,8 +530,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 1.30
-        high: 1.70
+        low: 1.00
+        high: 1.65
         precision: 3
         controls: [senescence_timing]
         meaning: >-
@@ -575,7 +575,7 @@ targets:
         type: float
         mode: relative
         factor: [0.85, 1.15]
-        clip: [2.35, 3.25]
+        clip: [0.0, 4]
         precision: 3
         affects_lai: true
         controls: [biomass_level, peak_lai]
@@ -595,7 +595,7 @@ targets:
         mode: relative
         # Baseline maize KDIF is 0.60; these relative factors give ~0.50-0.65.
         factor: [0.8333, 1.0833]
-        clip: [0.80, 1.05]
+        clip: [0.35, 0.75]
         precision: 3
         affects_lai: true
         controls: [light_interception, biomass_level]
@@ -684,8 +684,8 @@ targets:
         # remains inside the space while avoiding cereal ranges that are too high
         # for this grain-maize parameterisation.
         mode: absolute
-        low: 0.20
-        high: 0.36
+        low: 0.04
+        high: 0.14
         precision: 3
         controls: [translocation, harvest_index]
         meaning: >-
@@ -711,8 +711,8 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.20]
-        clip: [0.011, 0.0165]
-        precision: 4
+        clip: [0.014, 0.025]
+        precision: 3
         controls: [yield_n_limit]
         meaning: >-
           Maximum N concentration in the storage organ. Together with the N
@@ -765,7 +765,7 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 1.40
+        low: 1.20
         high: 1.75
         precision: 3
         controls: [grain_filling_dynamics]

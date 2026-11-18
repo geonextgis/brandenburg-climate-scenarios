@@ -44,7 +44,16 @@ What it does
    continuous functions do not cover. Applied to the inherited file's own
    texture this reproduces its fc / wp / sat to a median 0.007 / 0.009 / 0.001
    m3/m3, so the hydraulic method is unchanged and only the texture is new.
-6. The file's own conventions are kept: soilwater_init = fc,
+6. A regional correction of available water. The quantile maps fix the
+   statewide distribution, not its geography: after them the far south was
+   still ~+25 mm PAWC(0-1 m) too wet and the centre 30-48 mm too dry. The
+   per-layer residual (fc - wp, HYPRES on the measured BZE-LW profile minus the
+   table) is spread as a shrunken Gaussian-kernel field (sd 15 km) and added to
+   fc, layers 1-5; wp is kept. Cross-validated (5 x 2-fold) the mean absolute
+   district bias falls from 17 to ~12 mm with no statewide or northern bias.
+   Leave-district-out it falls only to ~15 mm: most of the signal is each
+   district's own points. The texture columns are not adjusted to match.
+7. The file's own conventions are kept: soilwater_init = fc,
    soilwater_red = wp + 0.5 (fc - wp), the *_global values are thickness-weighted
    profile means. Every column the inherited file holds constant (layer depths,
    N/P initial pools, pH, CaCO3, drainage_rate, ...) is copied unchanged, in the
@@ -257,6 +266,48 @@ def bias_correct(site: dict, at_bze: dict, bze: pd.DataFrame, fit: np.ndarray) -
     return out
 
 
+# Regional correction of available water (step 6 in the module docstring).
+# The global quantile maps fix the statewide distribution but not where it
+# falls: SoilGrids' ranking is weak regionally, so after them the far south
+# (DE407, DE40B) was still ~+25 mm PAWC(0-1 m) too wet (subsoil not sandy
+# enough) and the centre (DE406, DE404, DE40A, Berlin) 30-48 mm too dry.
+# The residual is corrected in available water (fc - wp), not in texture: PAWC
+# is nonlinear in texture, and smoothing sand residuals instead left PAWC +9 mm
+# too wet in the north, where the table had been unbiased.
+AWC_H_KM = 15.0   # Gaussian kernel sd; chosen by 5 x 2-fold CV over 10-60 km
+AWC_LAMBDA = 1.0  # shrinkage: the field tends to 0 where kernel weight << 1 point
+AWC_LAYERS = 5    # layers 1-5 = the top metre that BZE-LW measures reliably
+
+
+def _xy_km(lat: np.ndarray, lon: np.ndarray) -> np.ndarray:
+    from pyproj import Transformer
+    t = Transformer.from_crs(4326, 3035, always_xy=True)
+    return np.column_stack(t.transform(lon, lat)) / 1000.0
+
+
+def awc_residual_field(target_xy: np.ndarray, pts_xy: np.ndarray, resid: np.ndarray,
+                       h_km: float = AWC_H_KM, lam: float = AWC_LAMBDA) -> np.ndarray:
+    """Shrunken Gaussian-kernel mean of per-layer residuals, evaluated at target_xy."""
+    out = np.zeros((len(target_xy), resid.shape[1]))
+    for s in range(0, len(target_xy), 2000):  # chunked: 15 066 x 216 is small, but keep memory flat
+        d2 = ((target_xy[s:s + 2000, None, :] - pts_xy[None, :, :]) ** 2).sum(-1)
+        w = np.exp(-d2 / (2 * h_km ** 2))
+        out[s:s + 2000] = (w @ resid) / (w.sum(axis=1) + lam)[:, None]
+    return out
+
+
+def awc_correct(hy: dict, xy: np.ndarray, hy_at_bze: dict, ref_hy: dict, bze_xy: np.ndarray,
+                fit: np.ndarray) -> np.ndarray:
+    """fc with the regional available-water residual (measured - table, BZE points `fit`) added.
+
+    wp is kept; fc is moved, and clipped so that wp < fc < sat still holds."""
+    aw = hy["fc"] - hy["wp"]
+    resid = (ref_hy["fc"] - ref_hy["wp"])[fit] - (hy_at_bze["fc"] - hy_at_bze["wp"])[fit]
+    resid[:, AWC_LAYERS:] = 0.0
+    aw = aw + awc_residual_field(xy, bze_xy[fit], resid)
+    return np.clip(hy["wp"] + np.maximum(aw, 0.01), hy["wp"] + 0.01, hy["sat"] - 0.01)
+
+
 def to_sim_layers(sg: dict, prop: str) -> np.ndarray:
     """Overlap-weighted average of the SoilGrids depths onto the SIMPLACE layers."""
     cols = []
@@ -321,6 +372,17 @@ def build() -> Path:
     site = bias_correct(site, at_bze, bze, mineral)
     sand, clay, carbon, bd = site["sand"], site["clay"], site["carbon"], site["bd"]
     hy = hydraulics(sand, clay, carbon, bd)
+    v = bias_correct(at_bze, at_bze, bze, mineral)
+    hy_at_bze = hydraulics(v["sand"], v["clay"], v["carbon"], v["bd"])
+    ref_hy = hydraulics(layers(bze, "sand"), layers(bze, "clay"), layers(bze, "carbon"),
+                        layers(bze, "bulkdensity"))
+    fc_before = hy["fc"].copy()
+    hy["fc"] = awc_correct(hy, _xy_km(sites["Latitude"].values, sites["Longitude"].values),
+                           hy_at_bze, ref_hy, _xy_km(bze["Latitude"].values, bze["Longitude"].values),
+                           mineral)
+    shift = ((hy["fc"] - fc_before)[:, :AWC_LAYERS] * np.array([0.1, 0.2, 0.2, 0.2, 0.3]) * 1000).sum(axis=1)
+    print(f"regional AWC correction: PAWC(0-1 m) shift median {np.median(shift):+.1f} mm, "
+          f"5-95 % {np.percentile(shift, 5):+.1f} .. {np.percentile(shift, 95):+.1f} mm")
 
     new = tpl.copy()
     thick = np.diff([0] + [b for _, b in SIM_LAYERS]) / 100.0
@@ -353,6 +415,10 @@ def build() -> Path:
                       f"fc=theta({H_FC:.0f} cm), wp=theta({H_WP:.0f} cm), res=theta({H_RES:.0f} cm), "
                       f"theta_r={THETA_R}, topsoil flag layers 1-{TOPSOIL_LAYERS}, OM=1.724*C; "
                       f"C>={PEAT_C}% -> HYPRES organic class",
+        "regional_awc_correction": f"fc moved by the shrunken Gaussian-kernel mean (sd {AWC_H_KM} km, "
+                                   f"lambda {AWC_LAMBDA}) of the BZE-LW available-water residual, layers "
+                                   f"1-{AWC_LAYERS}; wp unchanged; texture columns are the quantile-mapped "
+                                   "values and do not reflect this step",
         "conventions": "init=fc; red=wp+0.5(fc-wp); *_global thickness-weighted 0-200 cm",
         "unchanged_from": str(TEMPLATE.relative_to(REPO_ROOT)),
         "peat_layers": int(hy["peat"].sum()),
@@ -393,7 +459,9 @@ def validate() -> None:
     mineral = (layers(bze, "carbon") < PEAT_C).all(axis=1)
 
     rows = []
-    for name, path in {"inherited": TEMPLATE, "soilgrids": OUT_DIR / "soil_soilgrids.csv"}.items():
+    tables = {"inherited": OUT_DIR / "soil_inherited.csv", "soilgrids_v1": OUT_DIR / "soil_soilgrids_v1.csv",
+              "soilgrids": OUT_DIR / "soil_soilgrids.csv"}
+    for name, path in {k: p for k, p in tables.items() if p.exists()}.items():
         df = pd.read_csv(path).set_index("location").loc[near].reset_index()
         for var, f in [("sand_1 %", lambda x: x["sand_1"]), ("sand_4 %", lambda x: x["sand_4"]),
                        ("clay_1 %", lambda x: x["clay_1"]), ("carbon_1 %", lambda x: x["carbon_1"]),
@@ -409,13 +477,17 @@ def validate() -> None:
     thick = np.array([0.1, 0.2, 0.2, 0.2, 0.3, 0.0])
     ref = hydraulics(layers(bze, "sand"), layers(bze, "clay"), layers(bze, "carbon"), layers(bze, "bulkdensity"))
     ref_pawc = ((ref["fc"] - ref["wp"]) * thick * 1000).sum(axis=1)
+    bze_xy = _xy_km(bze["Latitude"].values, bze["Longitude"].values)
     cv = []
     for seed in range(5):
         fold = np.random.default_rng(seed).integers(0, 2, len(bze))
         for k in (0, 1):
             fit, ev = mineral & (fold != k), mineral & (fold == k)
-            for name, v in {"raw": at_bze, "corrected": bias_correct(at_bze, at_bze, bze, fit)}.items():
+            corr = bias_correct(at_bze, at_bze, bze, fit)
+            for name, v in {"raw": at_bze, "corrected": corr, "corrected+awc": corr}.items():
                 hy = hydraulics(v["sand"], v["clay"], v["carbon"], v["bd"])
+                if name == "corrected+awc":
+                    hy["fc"] = awc_correct(hy, bze_xy, hy, ref, bze_xy, fit)
                 pawc = ((hy["fc"] - hy["wp"]) * thick * 1000).sum(axis=1)
                 for var, o, s in [("sand_1 %", layers(bze, "sand")[:, 0], v["sand"][:, 0]),
                                   ("sand_4 %", layers(bze, "sand")[:, 3], v["sand"][:, 3]),
