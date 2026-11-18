@@ -164,7 +164,7 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 50.0
+        low: 20.0
         high: 220.0
         precision: 1
         controls: [emergence_timing]
@@ -208,8 +208,8 @@ targets:
         kind: scalar
         type: float
         mode: absolute
-        low: 650.0
-        high: 1250.0
+        low: 300.0
+        high: 650.0
         precision: 0
         controls: [flowering_timing]
         meaning: >-
@@ -223,7 +223,7 @@ targets:
         type: float
         mode: absolute
         low: 500.0
-        high: 1200.0
+        high: 950.0
         precision: 0
         controls: [grain_filling_duration]
         meaning: >-
@@ -264,7 +264,7 @@ targets:
         type: float
         mode: absolute
         low: 5.0
-        high: 15.0
+        high: 20.0
         precision: 1
         controls: [vernalisation_onset, flowering_timing]
         coupled_with: [VERSAT]
@@ -285,7 +285,7 @@ targets:
         type: float
         mode: absolute
         low: 30.0
-        high: 70.0
+        high: 100.0
         precision: 1
         controls: [vernalisation_requirement, flowering_timing]
         coupled_with: [VBASE]
@@ -488,7 +488,7 @@ targets:
         type: float
         mode: relative
         factor: [0.80, 1.25]
-        clip: [3.0, 7.0]
+        clip: [3.2, 7.0]
         precision: 3
         controls: [peak_lai, peak_duration]
         meaning: >-

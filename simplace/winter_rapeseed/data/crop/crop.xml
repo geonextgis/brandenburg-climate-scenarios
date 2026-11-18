@@ -35,7 +35,7 @@
       <value>0.95</value>
       <value>0.95</value>
     </parameter>
-    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">360.0</parameter>  <!-- default: 700 -->
+    <parameter id="TSUM1" description="temperature sum from emergance to anthesis" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">370.0</parameter>  <!-- default: 700 -->
     <parameter id="TSUM2" description="temperature sum from anthesis to maturity" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">1097</parameter>  <!-- default: 900 -->
     <parameter id="TsumIncrementTableMeanTemp" description="Daily increase in temperature sum as function of av. temp. [Cel;Cel d]" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius_day">
       <value>0.00</value>
@@ -95,8 +95,8 @@
       <value>2.0</value>
     </parameter>
     <parameter id="KDIFTableK" description="Extinction cofficient for diffuse visible light as function of DVS" unit="http://www.wurvoc.org/vocabularies/om-1.8/one">
-      <value>0.54</value>
-      <value>0.54</value>
+      <value>0.58</value>
+      <value>0.58</value>
     </parameter>
     <parameter id="RUETableDVS" description="DVS for radiation use efficiency..." unit="...">
       <value>0.0</value>
@@ -106,9 +106,9 @@
     </parameter>
     <parameter id="RUETableRUE" description="Radiation use efficiency for biomass production as function of DVS" unit="...">
       <value>4.0</value> 
-      <value>3.09</value> 
-      <value>2.85</value> 
-      <value>1.75</value> 
+      <value>3.25</value> 
+      <value>3.05</value> 
+      <value>2.15</value> 
     </parameter>
     <parameter id="TMPFTableMeanTemperature" description="Mean daytime temp for reduction factor of RUE" unit="http://www.wurvoc.org/vocabularies/om-1.8/degree_Celsius">
       <value>-1.00</value>
